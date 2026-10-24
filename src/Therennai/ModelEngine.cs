@@ -27,7 +27,8 @@ internal sealed class ModelEngine : IDisposable
     /// Streams a chat reply, calling <paramref name="onText"/> for each piece of text.
     /// Returns the token usage: { promptTokens, replyTokens }.
     /// </summary>
-    public async Task<JsonObject?> ChatAsync(string model, JsonArray messages, Action<string> onText, CancellationToken ct)
+    public async Task<JsonObject?> ChatAsync(
+        string model, int contextTokens, JsonArray messages, Action<string> onText, CancellationToken ct)
     {
         if (!IsInstalled) throw EngineException.NotInstalled();
         await EnsureRunningAsync(ct);
@@ -35,6 +36,7 @@ internal sealed class ModelEngine : IDisposable
         var body = new JsonObject
         {
             ["model"] = model, ["messages"] = messages, ["stream"] = true, ["keep_alive"] = KeepAlive,
+            ["options"] = new JsonObject { ["num_ctx"] = contextTokens },
         };
         JsonObject? usage = null;
         await StreamAsync("api/chat", body, chunk =>
@@ -85,13 +87,18 @@ internal sealed class ModelEngine : IDisposable
     /// Loads the model into memory ahead of the first message, so the first reply doesn't wait for it.
     /// Does nothing if the engine or model isn't installed.
     /// </summary>
-    public async Task PreloadAsync(string model)
+    public async Task PreloadAsync(string model, int contextTokens)
     {
         if (!IsInstalled) return;
         try
         {
             await EnsureRunningAsync(CancellationToken.None);
-            var body = new JsonObject { ["model"] = model, ["messages"] = new JsonArray(), ["keep_alive"] = KeepAlive };
+            // Same context size as the chats, otherwise the engine reloads the model on the first message.
+            var body = new JsonObject
+            {
+                ["model"] = model, ["messages"] = new JsonArray(), ["keep_alive"] = KeepAlive,
+                ["options"] = new JsonObject { ["num_ctx"] = contextTokens },
+            };
             using var content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             using var response = await http.PostAsync("api/chat", content);
         }

@@ -91,7 +91,8 @@ internal sealed class MainForm : Form
                 activeReply?.Cancel();
                 break;
             case "preload":
-                await engine.PreloadAsync(request["model"]!.GetValue<string>());
+                string preloadModel = request["model"]!.GetValue<string>();
+                await engine.PreloadAsync(preloadModel, ContextTokens(preloadModel));
                 break;
             case "theme":
                 ApplyTheme(request["value"]?.GetValue<string>() ?? "system");
@@ -146,7 +147,7 @@ internal sealed class MainForm : Form
                 foreach (JsonNode? message in request["messages"]!.AsArray())
                     messages.Add(message!.DeepClone());
 
-                usage = await engine.ChatAsync(model, messages,
+                usage = await engine.ChatAsync(model, ContextTokens(model), messages,
                     text => Post(new JsonObject { ["type"] = "chunk", ["requestId"] = requestId, ["text"] = text }),
                     cts.Token);
             }
@@ -284,6 +285,8 @@ internal sealed class MainForm : Form
             prompt += "\n\nThings the user asked you to remember:\n" + string.Join("\n", memory.Select(m => "- " + m));
         return prompt;
     }
+
+    private static int ContextTokens(string model) => ModelInstaller.FindModel(model)?.ContextTokens ?? 8192;
 
     private static double FreeDiskGB()
     {

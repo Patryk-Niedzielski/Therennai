@@ -55,6 +55,10 @@ Commands for coding agents, such as `/init`, `/review`, `/diff`, `/mcp` and `/ag
 
 Chats are saved on your machine in `%LOCALAPPDATA%\Therennai`. Nothing is sent over the internet.
 
+## Context
+
+Therennai 1.0 has a 16,384-token context window, the largest that fits fully on a 6 GB GPU. The ring next to the model picker shows how much of it the current chat uses; click it for details. The button beside it compacts the chat: Therennai replaces the chat with a summary to free up space. When a chat reaches 85%, Therennai compacts it automatically before sending your next message.
+
 ## Permissions
 
 The shield button next to the model picker sets what Therennai may do on your PC: **Chat only**, **Ask every time**, **Auto-approve files** or **Full access**. Tools for acting on the PC aren't built yet, so for now every mode only chats.

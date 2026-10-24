@@ -13,7 +13,8 @@ internal sealed class ModelInstaller(ModelEngine engine)
     private const double EngineDiskGB = 3;
     private const double MarginGB = 1;
 
-    internal sealed record ModelInfo(string Id, string Name, string Version, double DiskGB, string BaseModel, string Folder)
+    internal sealed record ModelInfo(
+        string Id, string Name, string Version, double DiskGB, int ContextTokens, string BaseModel, string Folder)
     {
         public string Modelfile => Path.Combine(Folder, "Modelfile");
     }
@@ -39,7 +40,14 @@ internal sealed class ModelInstaller(ModelEngine engine)
             ?? throw new EngineException("The model's files are incomplete.");
 
         return new ModelInfo(modelId, info["name"]!.GetValue<string>(), info["version"]!.GetValue<string>(),
-            info["diskGB"]!.GetValue<double>(), baseModel, folder);
+            info["diskGB"]!.GetValue<double>(), info["contextTokens"]?.GetValue<int>() ?? 8192, baseModel, folder);
+    }
+
+    /// <summary>The model's details, or null if this version of Therennai doesn't ship it.</summary>
+    public static ModelInfo? FindModel(string modelId)
+    {
+        try { return LoadModel(modelId); }
+        catch (EngineException) { return null; }
     }
 
     /// <summary>Every model this version of Therennai ships with, oldest version first.</summary>

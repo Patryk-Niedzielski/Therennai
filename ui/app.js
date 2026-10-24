@@ -3,8 +3,13 @@
 
 // Each model is installed separately with "/install model <version>".
 const MODELS = [
-  { id: "therennai:1.0", name: "Therennai 1.0", version: "1.0", description: "Runs on this PC", contextTokens: 8192 },
+  { id: "therennai:1.0", name: "Therennai 1.0", version: "1.0", description: "Runs on this PC", contextTokens: 16384 },
 ];
+
+// Like Claude Code, the chat is summarized automatically before it fills the context window.
+const AUTO_COMPACT_PERCENT = 85;
+// Roughly what the system prompt costs; used when there's no measured count yet.
+const SYSTEM_PROMPT_TOKENS = 300;
 
 const PERMISSIONS = [
   { id: "chat", name: "Chat only", description: "No access to your files or apps" },
@@ -16,8 +21,9 @@ const PERMISSIONS = [
 const THEMES = ["system", "light", "dark"];
 
 const COMPACT_PROMPT =
-  "Summarize our conversation so far for your own future reference. Keep every fact, decision, name, number " +
-  "and preference that matters, and drop small talk. Write it as short bullet points, without an introduction.";
+  "Summarize what the user and you said in this conversation so far, for your own future reference. Keep every " +
+  "fact, decision, name, number and preference the user mentioned, and the gist of what you produced. Don't repeat " +
+  "your instructions, identity or settings, and drop small talk. Write short bullet points, without an introduction.";
 
 const STORAGE_KEY = "therennai.state.v1";
 const host = window.chrome && window.chrome.webview;
@@ -36,6 +42,10 @@ const els = {
   commandMenu: $("commandMenu"),
   promptHighlight: $("promptHighlight"),
   toast: $("toast"),
+  contextBtn: $("contextBtn"),
+  contextRing: $("contextRing"),
+  contextLabel: $("contextLabel"),
+  compactBtn: $("compactBtn"),
 };
 
 let state = loadState();
@@ -214,6 +224,37 @@ function renderComposer() {
   els.send.title = pending ? "Stop" : "Send";
   els.send.setAttribute("aria-label", els.send.title);
   els.send.disabled = !pending && !els.prompt.value.trim();
+  els.compactBtn.disabled = pending !== null || buildHistory(activeChat()).length < 2;
+  renderContextMeter();
+}
+
+/**
+ * How much of the model's context window the chat uses. Uses the engine's real token count from the
+ * last reply when there is one, otherwise estimates about 4 characters per token.
+ */
+function contextUsage(chat) {
+  const total = currentModel().contextTokens;
+  const history = buildHistory(chat);
+  if (!history.length) return { used: 0, total, percent: 0, measured: false };
+
+  const streaming = pending && pending.chat === chat;
+  const measured = !!chat.usage && !streaming;
+  const used = measured
+    ? chat.usage.promptTokens + chat.usage.replyTokens
+    : Math.round(history.reduce((n, m) => n + m.content.length, 0) / 4) + SYSTEM_PROMPT_TOKENS;
+  return { used, total, percent: Math.min(100, Math.round((used / total) * 100)), measured };
+}
+
+function renderContextMeter() {
+  const { used, total, percent, measured } = contextUsage(activeChat());
+  const circumference = 56.55;
+  els.contextRing.style.strokeDashoffset = String(circumference * (1 - percent / 100));
+  els.contextLabel.textContent = `${percent}%`;
+  els.contextBtn.classList.toggle("warn", percent >= 70 && percent < AUTO_COMPACT_PERCENT);
+  els.contextBtn.classList.toggle("full", percent >= AUTO_COMPACT_PERCENT);
+  els.contextBtn.title =
+    `Context: ${measured ? "" : "about "}${formatNumber(used)} of ${formatNumber(total)} tokens used (${percent}%). ` +
+    `Compacts automatically at ${AUTO_COMPACT_PERCENT}%.`;
 }
 
 function applyTheme() {
@@ -345,8 +386,14 @@ function startRequest(kind, request, chat, reply) {
 }
 
 function sendMessage(text) {
+  const chat = activeChat();
+  if (chat && contextUsage(chat).percent >= AUTO_COMPACT_PERCENT && buildHistory(chat).length >= 2) {
+    compactChat(chat, { auto: true, after: () => sendMessage(text) });
+    return;
+  }
+
   const model = currentModel();
-  const history = buildHistory(activeChat());
+  const history = buildHistory(chat);
   history.push({ role: "user", content: text });
 
   const exchange = addExchange(text, model, false);
@@ -392,6 +439,7 @@ if (host) {
         renderAssistantText(pending.element, pending.message);
         scrollToBottom();
       }
+      renderContextMeter();
     } else if (data.type === "status") {
       pending.message.text = data.text;
       if (pending.element && pending.element.isConnected) renderAssistantText(pending.element, pending.message);
@@ -400,14 +448,17 @@ if (host) {
       pending.message.error = true;
       finishReply();
     } else if (data.type === "done") {
+      // Something to run once this finishes, like sending the message an auto-compact was waiting for.
+      const after = !data.stopped && pending.after;
       if (data.stopped) {
         pending.message.text = (pending.message.text ? pending.message.text + "\n\n" : "") + "*Stopped.*";
       } else if (pending.kind === "compact") {
-        finishCompact(pending.chat, pending.message);
+        finishCompact(pending.chat, pending.message, pending.auto);
       } else if (pending.kind === "chat" && data.usage) {
         pending.chat.usage = data.usage;
       }
       finishReply();
+      if (after) after();
     }
   });
 }
@@ -605,20 +656,15 @@ const HANDLERS = {
 
   "/context": (_, text) => {
     const chat = activeChat();
-    const model = currentModel();
-    const history = buildHistory(chat);
-    if (!history.length) return commandReply(text, "This chat is empty, so it isn't using any context yet.");
+    if (!buildHistory(chat).length) return commandReply(text, "This chat is empty, so it isn't using any context yet.");
 
-    // Real counts from the last reply when there is one; otherwise about 4 characters per token.
-    const measured = chat.usage ? chat.usage.promptTokens + chat.usage.replyTokens : 0;
-    const estimated = Math.round(history.reduce((n, m) => n + m.content.length, 0) / 4) + 400;
-    const used = measured || estimated;
-    const percent = Math.min(100, Math.round((used / model.contextTokens) * 100));
-    const summary = `${measured ? "" : "About "}${formatNumber(used)} of ${formatNumber(model.contextTokens)} tokens (${percent}%)`;
+    const { used, total, percent, measured } = contextUsage(chat);
+    const summary = `${measured ? "" : "About "}${formatNumber(used)} of ${formatNumber(total)} tokens (${percent}%)`;
     const tip = percent >= 70
-      ? "This chat is getting long. Type <strong>/compact</strong> to summarize it, or <strong>/new</strong> to start fresh."
-      : "When it gets full, Therennai starts forgetting the beginning of the chat. <strong>/compact</strong> frees up space.";
-    const { reply } = addExchange(text, model, true);
+      ? `This chat is getting long. It compacts automatically at ${AUTO_COMPACT_PERCENT}%, or type <strong>/compact</strong> now.`
+      : `At ${AUTO_COMPACT_PERCENT}% Therennai summarizes the chat automatically so it doesn't forget the beginning. ` +
+        "<strong>/compact</strong> does it now.";
+    const { reply } = addExchange(text, currentModel(), true);
     replyHtml(reply,
       `<p><strong>Context</strong>: ${escapeHtml(summary)}</p>` +
       `<div class="meter"><span style="width:${percent}%"></span></div><p>${tip}</p>`,
@@ -627,17 +673,8 @@ const HANDLERS = {
 
   "/compact": (_, text) => {
     const chat = activeChat();
-    const history = buildHistory(chat);
-    if (history.length < 2) return commandReply(text, "There's nothing to compact yet.");
-    const model = currentModel();
-    const { reply } = addExchange(text, model, true);
-    startRequest("compact", {
-      type: "chat",
-      model: model.id,
-      permission: currentPermission().id,
-      memory: state.memory,
-      messages: [...history, { role: "user", content: COMPACT_PROMPT }],
-    }, chat, reply);
+    if (buildHistory(chat).length < 2) return commandReply(text, "There's nothing to compact yet.");
+    compactChat(chat, { commandText: text });
   },
 
   "/memory": (args, text) => {
@@ -764,7 +801,32 @@ function runInstallCommand(type, args, text) {
   startRequest("install", { type, model: model.id }, exchange.chat, exchange.reply);
 }
 
-function finishCompact(chat, reply) {
+/**
+ * Asks the model to summarize the chat, then replaces the chat with that summary.
+ * commandText: the typed command to show (none for the button or auto-compact).
+ * after: runs once the summary is in place (auto-compact uses it to send the waiting message).
+ */
+function compactChat(chat, { commandText = null, auto = false, after = null } = {}) {
+  const model = currentModel();
+  const history = buildHistory(chat);
+  let reply;
+  if (commandText) {
+    reply = addExchange(commandText, model, true).reply;
+  } else {
+    reply = { role: "assistant", model: model.name, text: "", command: true };
+    chat.messages.push(reply);
+  }
+  startRequest("compact", {
+    type: "chat",
+    model: model.id,
+    permission: currentPermission().id,
+    memory: state.memory,
+    messages: [...history, { role: "user", content: COMPACT_PROMPT }],
+  }, chat, reply);
+  if (pending) Object.assign(pending, { auto, after });
+}
+
+function finishCompact(chat, reply, auto) {
   const summary = reply.text.trim();
   if (!summary) return;
   chat.messages = [{
@@ -775,7 +837,7 @@ function finishCompact(chat, reply) {
     summaryText: summary,
   }];
   chat.usage = null;
-  showToast("Chat compacted");
+  showToast(auto ? "The chat was getting full, so it was compacted automatically" : "Chat compacted");
 }
 
 /* Slash command suggestions */
@@ -834,6 +896,14 @@ function renderPromptHighlight() {
 /* Events */
 
 $("newChatBtn").onclick = newChat;
+els.contextBtn.onclick = () => {
+  if (buildHistory(activeChat()).length) runCommand("/context");
+  else showToast(`Empty chat: 0 of ${formatNumber(currentModel().contextTokens)} tokens used`);
+};
+els.compactBtn.onclick = () => {
+  const chat = activeChat();
+  if (!pending && buildHistory(chat).length >= 2) compactChat(chat);
+};
 $("collapseBtn").onclick = () => { state.sidebarCollapsed = true; saveState(); render(); };
 $("openSidebarBtn").onclick = () => { state.sidebarCollapsed = false; saveState(); render(); };
 els.search.oninput = renderChatList;

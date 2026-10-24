@@ -303,6 +303,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .composer-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .spacer { flex: 1; }
 
+/* Context meter: a ring that fills as the chat uses the model's context */
+.context-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.context-btn:hover { background: var(--hover); color: var(--text); }
+.context-btn .ring { width: 16px; height: 16px; transform: rotate(-90deg); }
+.context-btn .ring-track { stroke: var(--border); stroke-width: 3; }
+.context-btn .ring-fill {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: 56.55;
+  stroke-dashoffset: 56.55;
+  transition: stroke-dashoffset .3s ease, stroke .3s ease;
+}
+.context-btn.warn .ring-fill { stroke: #d97706; }
+.context-btn.full .ring-fill { stroke: #dc2626; }
+
 .picker { position: relative; }
 .picker-btn {
   display: flex;

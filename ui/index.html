@@ -71,6 +71,18 @@
             </button>
             <div class="spacer"></div>
 
+            <button type="button" class="context-btn" id="contextBtn" aria-label="Context used">
+              <svg viewBox="0 0 24 24" class="ring">
+                <circle cx="12" cy="12" r="9" class="ring-track"/>
+                <circle cx="12" cy="12" r="9" class="ring-fill" id="contextRing"/>
+              </svg>
+              <span id="contextLabel">0%</span>
+            </button>
+
+            <button type="button" class="icon-btn" id="compactBtn" title="Compact chat" aria-label="Compact chat">
+              <svg viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>
+            </button>
+
             <div class="picker" id="permissionPicker">
               <button type="button" class="picker-btn" id="permissionBtn" title="Permissions" aria-haspopup="listbox" aria-expanded="false">
                 <svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6z"/></svg>

@@ -3,4 +3,5 @@
 FROM gemma3:4b
 
 PARAMETER temperature 0.7
-PARAMETER num_ctx 8192
+# 16k is the largest context that still fits fully on a 6 GB GPU; the app also sends it with each request.
+PARAMETER num_ctx 16384
