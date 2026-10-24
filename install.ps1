@@ -5,6 +5,10 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $dist = Join-Path $root "dist"
 
+# A running copy locks the files in dist\; chats are saved, so closing it is safe.
+Get-Process Therennai -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null; $_.WaitForExit(5000) | Out-Null }
+Get-Process Therennai -ErrorAction SilentlyContinue | Stop-Process -Force
+
 dotnet publish (Join-Path $root "src\Therennai\Therennai.csproj") -c Release -r win-x64 --self-contained false -o $dist
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 

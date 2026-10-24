@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
@@ -12,6 +14,8 @@ internal sealed class MainForm : Form
     private const string UiHost = "therennai.app";
 
     private readonly WebView2 webView = new() { Dock = DockStyle.Fill };
+    private readonly ModelEngine engine = new();
+    private CancellationTokenSource? activeReply;
 
     public MainForm()
     {
@@ -24,6 +28,11 @@ internal sealed class MainForm : Form
         Controls.Add(webView);
 
         Load += async (_, _) => await InitializeWebViewAsync();
+        FormClosed += (_, _) =>
+        {
+            activeReply?.Cancel();
+            engine.Dispose();
+        };
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -59,10 +68,81 @@ internal sealed class MainForm : Form
         core.Settings.AreDevToolsEnabled = false;
 #endif
         core.NewWindowRequested += (_, args) => args.Handled = true;
+        core.WebMessageReceived += OnWebMessageReceived;
 
         core.SetVirtualHostNameToFolderMapping(
             UiHost, Path.Combine(AppContext.BaseDirectory, "ui"), CoreWebView2HostResourceAccessKind.Deny);
         webView.Source = new Uri($"https://{UiHost}/index.html");
+    }
+
+    /// <summary>Handles "chat" and "stop" requests from the interface.</summary>
+    private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        JsonNode? request = JsonNode.Parse(e.WebMessageAsJson);
+        string? type = request?["type"]?.GetValue<string>();
+
+        if (type == "stop")
+        {
+            activeReply?.Cancel();
+            return;
+        }
+        if (type != "chat" || request is null) return;
+
+        string requestId = request["requestId"]!.GetValue<string>();
+        string model = request["model"]!.GetValue<string>();
+        string permission = request["permission"]?.GetValue<string>() ?? "chat";
+
+        activeReply?.Cancel();
+        using var cts = new CancellationTokenSource();
+        activeReply = cts;
+
+        try
+        {
+            var messages = new JsonArray
+            {
+                new JsonObject { ["role"] = "system", ["content"] = BuildSystemPrompt(model, permission) },
+            };
+            foreach (JsonNode? message in request["messages"]!.AsArray())
+                messages.Add(message!.DeepClone());
+
+            await engine.ChatAsync(model, messages,
+                text => Post(new JsonObject { ["type"] = "chunk", ["requestId"] = requestId, ["text"] = text }),
+                cts.Token);
+            Post(new JsonObject { ["type"] = "done", ["requestId"] = requestId });
+        }
+        catch (OperationCanceledException)
+        {
+            Post(new JsonObject { ["type"] = "done", ["requestId"] = requestId });
+        }
+        catch (Exception ex) when (ex is EngineException or HttpRequestException or IOException)
+        {
+            string message = ex is EngineException ? ex.Message : "Lost the connection to Therennai's brain.";
+            Post(new JsonObject { ["type"] = "error", ["requestId"] = requestId, ["message"] = message });
+        }
+        finally
+        {
+            if (activeReply == cts) activeReply = null;
+        }
+    }
+
+    private void Post(JsonObject message)
+    {
+        if (!IsDisposed && webView.CoreWebView2 is not null)
+            webView.CoreWebView2.PostWebMessageAsJson(message.ToJsonString());
+    }
+
+    /// <summary>The model's system prompt from models/&lt;model&gt;/system.txt plus the current permission mode.</summary>
+    private static string BuildSystemPrompt(string model, string permission)
+    {
+        string folder = Regex.Replace(model, "[^a-z0-9.]", "-");
+        string path = Path.Combine(AppContext.BaseDirectory, "models", folder, "system.txt");
+        string prompt = File.Exists(path) ? File.ReadAllText(path) : "You are Therennai, a helpful AI agent.";
+
+        string access = permission == "chat"
+            ? "Permission mode: Chat only. You have no access to the user's files, apps or commands."
+            : "Tools for acting on the PC aren't connected in this version, so you can't read files or run commands yet. " +
+              "When a task needs that, give the user the exact steps instead.";
+        return prompt.TrimEnd() + "\n\n" + access;
     }
 
     private static bool IsDarkMode()

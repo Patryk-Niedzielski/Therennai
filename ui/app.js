@@ -1,11 +1,19 @@
-// Therennai desktop shell. The agent has no model yet: replies are placeholders
-// until a backend is connected in respond().
+// Therennai interface. Replies come from the desktop host (src/Therennai), which runs
+// the selected model on this PC and streams the text back over window.chrome.webview.
 
 const MODELS = [
-  { id: "therennai-1.0", name: "Therennai 1.0", description: "Not trained yet" },
+  { id: "therennai:1.0", name: "Therennai 1.0", description: "Runs on this PC" },
+];
+
+const PERMISSIONS = [
+  { id: "chat", name: "Chat only", description: "No access to your files or apps" },
+  { id: "ask", name: "Ask every time", description: "Asks before reading files or running commands" },
+  { id: "files", name: "Auto-approve files", description: "Reads and edits files without asking, asks for commands" },
+  { id: "full", name: "Full access", description: "Acts on your PC without asking" },
 ];
 
 const STORAGE_KEY = "therennai.state.v1";
+const host = window.chrome && window.chrome.webview;
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -18,37 +26,78 @@ const els = {
   composer: $("composer"),
   prompt: $("prompt"),
   send: $("sendBtn"),
-  modelBtn: $("modelBtn"),
-  modelMenu: $("modelMenu"),
-  modelLabel: $("modelLabel"),
 };
 
 let state = loadState();
 
+// The reply being streamed: { requestId, chat, message, element }.
+let pending = null;
+
 function loadState() {
+  const defaults = { chats: [], activeId: null, modelId: MODELS[0].id, permissionId: "chat", sidebarCollapsed: false };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && Array.isArray(saved.chats)) return saved;
+    if (saved && Array.isArray(saved.chats)) return { ...defaults, ...saved };
   } catch {}
-  return { chats: [], activeId: null, modelId: MODELS[0].id, sidebarCollapsed: false };
+  return defaults;
 }
 
 function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
 }
 
-function activeChat() {
-  return state.chats.find((c) => c.id === state.activeId) || null;
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+const activeChat = () => state.chats.find((c) => c.id === state.activeId) || null;
+const currentModel = () => MODELS.find((m) => m.id === state.modelId) || MODELS[0];
+const currentPermission = () => PERMISSIONS.find((p) => p.id === state.permissionId) || PERMISSIONS[0];
+
+/* Markdown (small subset: paragraphs, headings, lists, code, bold, italics) */
+
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function currentModel() {
-  return MODELS.find((m) => m.id === state.modelId) || MODELS[0];
+function renderInline(text) {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
 }
 
-// Placeholder until Therennai is taught. Swap this for a real model call later.
-function respond(text, model) {
-  return `I'm ${model.name}, but I haven't been taught anything yet, so I can't answer "${text}". ` +
-    "Once a model is connected, I'll reply here.";
+function renderMarkdown(source) {
+  const lines = source.split("\n");
+  const out = [];
+  let list = null;
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const openList = (tag) => { if (list !== tag) { closeList(); out.push(`<${tag}>`); list = tag; } };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let m;
+    if (line.trimStart().startsWith("```")) {
+      closeList();
+      const code = [];
+      while (++i < lines.length && !lines[i].trimStart().startsWith("```")) code.push(lines[i]);
+      out.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+    } else if ((m = line.match(/^(#{1,3})\s+(.*)/))) {
+      closeList();
+      const level = m[1].length + 2;
+      out.push(`<h${level}>${renderInline(m[2])}</h${level}>`);
+    } else if ((m = line.match(/^\s*[-*]\s+(.*)/))) {
+      openList("ul");
+      out.push(`<li>${renderInline(m[1])}</li>`);
+    } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) {
+      openList("ol");
+      out.push(`<li>${renderInline(m[1])}</li>`);
+    } else if (!line.trim()) {
+      closeList();
+    } else {
+      closeList();
+      out.push(`<p>${renderInline(line)}</p>`);
+    }
+  }
+  closeList();
+  return out.join("");
 }
 
 /* Rendering */
@@ -77,6 +126,11 @@ function renderChatList() {
   }
 }
 
+function renderAssistantText(element, message) {
+  element.innerHTML = renderMarkdown(message.text);
+  element.classList.toggle("typing", pending !== null && pending.message === message);
+}
+
 function renderConversation() {
   const chat = activeChat();
   els.messages.replaceChildren();
@@ -86,7 +140,7 @@ function renderConversation() {
 
   for (const msg of chat.messages) {
     const row = document.createElement("div");
-    row.className = "msg " + msg.role;
+    row.className = "msg " + msg.role + (msg.error ? " error" : "");
     if (msg.role === "user") {
       row.textContent = msg.text;
     } else {
@@ -94,48 +148,82 @@ function renderConversation() {
       icon.src = "icon.svg";
       icon.alt = "";
       const body = document.createElement("div");
+      body.className = "body";
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = msg.model;
       const text = document.createElement("div");
-      text.textContent = msg.text;
+      text.className = "md";
+      renderAssistantText(text, msg);
+      if (pending && pending.message === msg) pending.element = text;
       body.append(meta, text);
       row.append(icon, body);
     }
     els.messages.append(row);
   }
+  scrollToBottom();
+}
+
+function scrollToBottom() {
   els.conversation.scrollTop = els.conversation.scrollHeight;
 }
 
-function renderModelMenu() {
-  els.modelLabel.textContent = currentModel().name;
-  els.modelMenu.replaceChildren();
-  for (const model of MODELS) {
+function renderComposer() {
+  els.send.classList.toggle("stop", pending !== null);
+  els.send.title = pending ? "Stop" : "Send";
+  els.send.setAttribute("aria-label", els.send.title);
+  els.send.disabled = !pending && !els.prompt.value.trim();
+}
+
+/* Pickers (permissions and model) */
+
+const pickers = [
+  {
+    root: $("permissionPicker"), button: $("permissionBtn"), menu: $("permissionMenu"), label: $("permissionLabel"),
+    items: PERMISSIONS, current: currentPermission, select: (id) => { state.permissionId = id; },
+  },
+  {
+    root: $("modelPicker"), button: $("modelBtn"), menu: $("modelMenu"), label: $("modelLabel"),
+    items: MODELS, current: currentModel, select: (id) => { state.modelId = id; },
+  },
+];
+
+function renderPicker(picker) {
+  const selected = picker.current();
+  picker.label.textContent = selected.name;
+  picker.menu.replaceChildren();
+  for (const item of picker.items) {
     const opt = document.createElement("button");
     opt.type = "button";
-    opt.className = "model-option";
+    opt.className = "picker-option";
     opt.setAttribute("role", "option");
-    opt.setAttribute("aria-selected", String(model.id === state.modelId));
+    opt.setAttribute("aria-selected", String(item.id === selected.id));
     opt.innerHTML =
-      '<div class="model-text"><div class="model-name"></div><div class="model-desc"></div></div>' +
+      '<div class="option-text"><div class="option-name"></div><div class="option-desc"></div></div>' +
       '<svg class="check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>';
-    opt.querySelector(".model-name").textContent = model.name;
-    opt.querySelector(".model-desc").textContent = model.description;
+    opt.querySelector(".option-name").textContent = item.name;
+    opt.querySelector(".option-desc").textContent = item.description;
     opt.onclick = () => {
-      state.modelId = model.id;
+      picker.select(item.id);
       saveState();
-      renderModelMenu();
-      toggleModelMenu(false);
+      renderPicker(picker);
+      setPickerOpen(picker, false);
     };
-    els.modelMenu.append(opt);
+    picker.menu.append(opt);
   }
+}
+
+function setPickerOpen(picker, open) {
+  picker.menu.hidden = !open;
+  picker.button.setAttribute("aria-expanded", String(open));
 }
 
 function render() {
   els.shell.classList.toggle("collapsed", state.sidebarCollapsed);
   renderChatList();
   renderConversation();
-  renderModelMenu();
+  pickers.forEach(renderPicker);
+  renderComposer();
 }
 
 /* Actions */
@@ -154,6 +242,7 @@ function newChat() {
 }
 
 function deleteChat(id) {
+  if (pending && pending.chat.id === id) stopReply();
   state.chats = state.chats.filter((c) => c.id !== id);
   if (state.activeId === id) state.activeId = null;
   saveState();
@@ -163,26 +252,76 @@ function deleteChat(id) {
 function sendMessage(text) {
   let chat = activeChat();
   if (!chat) {
-    chat = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), title: text.slice(0, 40), messages: [] };
+    chat = { id: newId(), title: text.slice(0, 40), messages: [] };
     state.chats.unshift(chat);
     state.activeId = chat.id;
   }
   const model = currentModel();
+  const history = chat.messages
+    .filter((m) => !m.error && m.text)
+    .map((m) => ({ role: m.role, content: m.text }));
+  history.push({ role: "user", content: text });
+
   chat.messages.push({ role: "user", text });
-  chat.messages.push({ role: "assistant", model: model.name, text: respond(text, model) });
+  const reply = { role: "assistant", model: model.name, text: "" };
+  chat.messages.push(reply);
+
+  if (!host) {
+    reply.text = "Open Therennai from its desktop app to chat.";
+    reply.error = true;
+    saveState();
+    render();
+    return;
+  }
+
+  pending = { requestId: newId(), chat, message: reply, element: null };
+  saveState();
+  render();
+  host.postMessage({
+    type: "chat",
+    requestId: pending.requestId,
+    model: model.id,
+    permission: currentPermission().id,
+    messages: history,
+  });
+}
+
+function stopReply() {
+  if (pending && host) host.postMessage({ type: "stop", requestId: pending.requestId });
+}
+
+function finishReply() {
+  pending = null;
   saveState();
   render();
 }
 
-function toggleModelMenu(open) {
-  els.modelMenu.hidden = !open;
-  els.modelBtn.setAttribute("aria-expanded", String(open));
+if (host) {
+  host.addEventListener("message", (e) => {
+    const data = e.data;
+    if (!pending || data.requestId !== pending.requestId) return;
+
+    if (data.type === "chunk") {
+      pending.message.text += data.text;
+      if (pending.element && pending.element.isConnected) {
+        renderAssistantText(pending.element, pending.message);
+        scrollToBottom();
+      }
+    } else if (data.type === "error") {
+      pending.message.text = data.message;
+      pending.message.error = true;
+      finishReply();
+    } else if (data.type === "done") {
+      if (!pending.message.text) pending.message.text = "*Stopped.*";
+      finishReply();
+    }
+  });
 }
 
 function autoResize() {
   els.prompt.style.height = "auto";
   els.prompt.style.height = els.prompt.scrollHeight + "px";
-  els.send.disabled = !els.prompt.value.trim();
+  renderComposer();
 }
 
 /* Events */
@@ -196,12 +335,16 @@ els.prompt.addEventListener("input", autoResize);
 els.prompt.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    els.composer.requestSubmit();
+    if (!pending) els.composer.requestSubmit();
   }
 });
 
 els.composer.addEventListener("submit", (e) => {
   e.preventDefault();
+  if (pending) {
+    stopReply();
+    return;
+  }
   const text = els.prompt.value.trim();
   if (!text) return;
   els.prompt.value = "";
@@ -209,15 +352,21 @@ els.composer.addEventListener("submit", (e) => {
   sendMessage(text);
 });
 
-els.modelBtn.onclick = (e) => {
-  e.stopPropagation();
-  toggleModelMenu(els.modelMenu.hidden);
-};
+for (const picker of pickers) {
+  picker.button.onclick = (e) => {
+    e.stopPropagation();
+    const open = picker.menu.hidden;
+    pickers.forEach((p) => setPickerOpen(p, false));
+    setPickerOpen(picker, open);
+  };
+}
 document.addEventListener("click", (e) => {
-  if (!els.modelMenu.hidden && !$("modelPicker").contains(e.target)) toggleModelMenu(false);
+  for (const picker of pickers) {
+    if (!picker.menu.hidden && !picker.root.contains(e.target)) setPickerOpen(picker, false);
+  }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") toggleModelMenu(false);
+  if (e.key === "Escape") pickers.forEach((p) => setPickerOpen(p, false));
 });
 
 render();

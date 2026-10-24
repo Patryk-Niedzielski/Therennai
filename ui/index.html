@@ -67,20 +67,30 @@
             </button>
             <div class="spacer"></div>
 
-            <div class="model-picker" id="modelPicker">
-              <button type="button" class="model-btn" id="modelBtn" aria-haspopup="listbox" aria-expanded="false">
-                <span id="modelLabel">Therennai 1.0</span>
-                <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            <div class="picker" id="permissionPicker">
+              <button type="button" class="picker-btn" id="permissionBtn" title="Permissions" aria-haspopup="listbox" aria-expanded="false">
+                <svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6z"/></svg>
+                <span id="permissionLabel">Chat only</span>
+                <svg viewBox="0 0 24 24" class="chevron"><path d="m6 9 6 6 6-6"/></svg>
               </button>
-              <div class="model-menu" id="modelMenu" role="listbox" hidden></div>
+              <div class="picker-menu" id="permissionMenu" role="listbox" hidden></div>
+            </div>
+
+            <div class="picker" id="modelPicker">
+              <button type="button" class="picker-btn" id="modelBtn" title="Model" aria-haspopup="listbox" aria-expanded="false">
+                <span id="modelLabel">Therennai 1.0</span>
+                <svg viewBox="0 0 24 24" class="chevron"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="picker-menu" id="modelMenu" role="listbox" hidden></div>
             </div>
 
             <button type="submit" class="send-btn" id="sendBtn" title="Send" aria-label="Send" disabled>
-              <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <svg viewBox="0 0 24 24" class="icon-send"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <svg viewBox="0 0 24 24" class="icon-stop"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
             </button>
           </div>
         </form>
-        <div class="disclaimer">Therennai 1.0 has no model connected yet.</div>
+        <div class="disclaimer">Therennai can make mistakes. Actions on your PC arrive in a later version.</div>
       </footer>
     </main>
   </div>

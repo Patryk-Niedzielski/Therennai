@@ -17,9 +17,10 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
 
-  <!-- The chat interface lives in /ui and ships next to the exe. -->
+  <!-- The chat interface (/ui) and model system prompts (/models) ship next to the exe. -->
   <ItemGroup>
     <Content Include="..\..\ui\**\*" LinkBase="ui" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\models\**\system.txt" LinkBase="models" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
