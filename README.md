@@ -2,7 +2,7 @@
 
 Therennai is an open-source AI agent that runs locally on your own computer. Your chats never leave your PC.
 
-This repository has the Windows desktop app, `Therennai.exe`: a chat window with a sidebar of recent chats, a message box with slash commands, a context meter, a permissions button and a model picker. Its model, **Vesper 1.0**, is built on Gemma 3 4B and runs entirely on your PC, on the GPU when there's room.
+This repository has the Windows desktop app, `Therennai.exe`: a chat window with a sidebar of recent chats, a message box with slash commands, a context meter, a permissions button and a model picker. Its model, **Vesper 1.0**, runs entirely on your PC, on the GPU when there's room.
 
 ## Features
 
@@ -120,4 +120,4 @@ Edit `models/therennai-1.0/system.txt` to change how Vesper behaves, then run `i
 
 ## License
 
-Therennai's code is [MIT](LICENSE) licensed. The Gemma 3 base model is covered by Google's [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
+Therennai's code is [MIT](LICENSE) licensed.
