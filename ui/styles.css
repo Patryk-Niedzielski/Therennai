@@ -331,8 +331,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .md pre code { padding: 0; background: none; }
 .md > :last-child { margin-bottom: 0; }
 .msg.error .md { color: #c2410c; }
-.typing:empty::after, .typing > p:last-child::after { content: "▍"; animation: blink 1s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
+/* Thinking indicator: three dots rising and fading in a wave */
+.thinking { display: flex; align-items: center; gap: 6px; height: 24px; }
+.thinking span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: wave 1.2s ease-in-out infinite;
+}
+.thinking span:nth-child(2) { animation-delay: .15s; }
+.thinking span:nth-child(3) { animation-delay: .3s; }
+@keyframes wave {
+  0%, 60%, 100% { transform: translateY(0) scale(.8); opacity: .35; }
+  30% { transform: translateY(-7px) scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking span { animation-duration: 2.4s; }
+}
 
 .disclaimer { margin-top: 8px; text-align: center; font-size: 12px; color: var(--muted); }
 

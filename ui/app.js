@@ -144,8 +144,10 @@ function renderChatList() {
 }
 
 function renderAssistantText(element, message) {
-  element.innerHTML = renderMarkdown(message.text);
-  element.classList.toggle("typing", pending !== null && pending.message === message);
+  const thinking = pending !== null && pending.message === message && !message.text;
+  element.innerHTML = thinking
+    ? '<div class="thinking" aria-label="Thinking"><span></span><span></span><span></span></div>'
+    : renderMarkdown(message.text);
 }
 
 function renderConversation() {
