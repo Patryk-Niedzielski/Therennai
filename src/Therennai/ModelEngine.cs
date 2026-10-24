@@ -23,8 +23,11 @@ internal sealed class ModelEngine : IDisposable
 
     public static bool IsInstalled => File.Exists(EnginePath);
 
-    /// <summary>Streams a chat reply, calling <paramref name="onText"/> for each piece of text.</summary>
-    public async Task ChatAsync(string model, JsonArray messages, Action<string> onText, CancellationToken ct)
+    /// <summary>
+    /// Streams a chat reply, calling <paramref name="onText"/> for each piece of text.
+    /// Returns the token usage: { promptTokens, replyTokens }.
+    /// </summary>
+    public async Task<JsonObject?> ChatAsync(string model, JsonArray messages, Action<string> onText, CancellationToken ct)
     {
         if (!IsInstalled) throw EngineException.NotInstalled();
         await EnsureRunningAsync(ct);
@@ -33,11 +36,49 @@ internal sealed class ModelEngine : IDisposable
         {
             ["model"] = model, ["messages"] = messages, ["stream"] = true, ["keep_alive"] = KeepAlive,
         };
+        JsonObject? usage = null;
         await StreamAsync("api/chat", body, chunk =>
         {
             string? text = chunk["message"]?["content"]?.GetValue<string>();
             if (!string.IsNullOrEmpty(text)) onText(text);
+            if (chunk["done"]?.GetValue<bool>() == true)
+            {
+                usage = new JsonObject
+                {
+                    ["promptTokens"] = chunk["prompt_eval_count"]?.GetValue<int>() ?? 0,
+                    ["replyTokens"] = chunk["eval_count"]?.GetValue<int>() ?? 0,
+                };
+            }
         }, ct);
+        return usage;
+    }
+
+    /// <summary>Engine state for /status: whether it's installed and running, and which models are installed and loaded.</summary>
+    public async Task<JsonObject> GetStatusAsync(CancellationToken ct)
+    {
+        var status = new JsonObject { ["installed"] = IsInstalled, ["running"] = false };
+        if (!IsInstalled || !await IsRunningAsync(ct)) return status;
+
+        status["running"] = true;
+        status["engineVersion"] = JsonNode.Parse(await http.GetStringAsync("api/version", ct))?["version"]?.DeepClone();
+        status["models"] = await GetModelListAsync("api/tags", ct);
+        status["loaded"] = await GetModelListAsync("api/ps", ct);
+        return status;
+    }
+
+    private async Task<JsonArray> GetModelListAsync(string path, CancellationToken ct)
+    {
+        var list = new JsonArray();
+        foreach (JsonNode? m in JsonNode.Parse(await http.GetStringAsync(path, ct))?["models"]?.AsArray() ?? [])
+        {
+            list.Add(new JsonObject
+            {
+                ["name"] = m?["name"]?.GetValue<string>(),
+                ["sizeGB"] = Math.Round((m?["size"]?.GetValue<long>() ?? 0) / 1e9, 2),
+                ["gpuGB"] = Math.Round((m?["size_vram"]?.GetValue<long>() ?? 0) / 1e9, 2),
+            });
+        }
+        return list;
     }
 
     /// <summary>

@@ -13,7 +13,7 @@ internal sealed class ModelInstaller(ModelEngine engine)
     private const double EngineDiskGB = 3;
     private const double MarginGB = 1;
 
-    private sealed record ModelInfo(string Id, string Name, string Version, double DiskGB, string BaseModel, string Folder)
+    internal sealed record ModelInfo(string Id, string Name, string Version, double DiskGB, string BaseModel, string Folder)
     {
         public string Modelfile => Path.Combine(Folder, "Modelfile");
     }
@@ -42,7 +42,8 @@ internal sealed class ModelInstaller(ModelEngine engine)
             info["diskGB"]!.GetValue<double>(), baseModel, folder);
     }
 
-    private static List<ModelInfo> AvailableModels() =>
+    /// <summary>Every model this version of Therennai ships with, oldest version first.</summary>
+    public static List<ModelInfo> AvailableModels() =>
         Directory.Exists(ModelsRoot)
             ? Directory.EnumerateFiles(ModelsRoot, "model.json", SearchOption.AllDirectories)
                 .Select(path => JsonNode.Parse(File.ReadAllText(path))!["id"]!.GetValue<string>())

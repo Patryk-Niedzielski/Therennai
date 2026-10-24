@@ -3,14 +3,7 @@
 
 // Each model is installed separately with "/install model <version>".
 const MODELS = [
-  { id: "therennai:1.0", name: "Therennai 1.0", version: "1.0", description: "Runs on this PC" },
-];
-
-const COMMANDS = [
-  ...MODELS.map((m) => ({ text: `/install model ${m.version}`, description: `Install ${m.name}` })),
-  { text: "/install model all", description: "Install every model" },
-  ...MODELS.map((m) => ({ text: `/uninstall model ${m.version}`, description: `Uninstall ${m.name} and free its disk space` })),
-  { text: "/uninstall model all", description: "Uninstall every model" },
+  { id: "therennai:1.0", name: "Therennai 1.0", version: "1.0", description: "Runs on this PC", contextTokens: 8192 },
 ];
 
 const PERMISSIONS = [
@@ -19,6 +12,12 @@ const PERMISSIONS = [
   { id: "files", name: "Auto-approve files", description: "Reads and edits files without asking, asks for commands" },
   { id: "full", name: "Full access", description: "Acts on your PC without asking" },
 ];
+
+const THEMES = ["system", "light", "dark"];
+
+const COMPACT_PROMPT =
+  "Summarize our conversation so far for your own future reference. Keep every fact, decision, name, number " +
+  "and preference that matters, and drop small talk. Write it as short bullet points, without an introduction.";
 
 const STORAGE_KEY = "therennai.state.v1";
 const host = window.chrome && window.chrome.webview;
@@ -36,15 +35,19 @@ const els = {
   send: $("sendBtn"),
   commandMenu: $("commandMenu"),
   promptHighlight: $("promptHighlight"),
+  toast: $("toast"),
 };
 
 let state = loadState();
 
-// The reply being streamed: { requestId, chat, message, element }.
+// The reply being streamed: { requestId, kind: "chat" | "install" | "compact", chat, message, element }.
 let pending = null;
 
 function loadState() {
-  const defaults = { chats: [], activeId: null, modelId: MODELS[0].id, permissionId: "chat", sidebarCollapsed: false };
+  const defaults = {
+    chats: [], activeId: null, modelId: MODELS[0].id, permissionId: "chat",
+    sidebarCollapsed: false, theme: "system", memory: [],
+  };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (saved && Array.isArray(saved.chats)) return { ...defaults, ...saved };
@@ -60,11 +63,29 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 const activeChat = () => state.chats.find((c) => c.id === state.activeId) || null;
 const currentModel = () => MODELS.find((m) => m.id === state.modelId) || MODELS[0];
 const currentPermission = () => PERMISSIONS.find((p) => p.id === state.permissionId) || PERMISSIONS[0];
+const formatNumber = (n) => n.toLocaleString("en-US");
+
+/* Host calls that return a result (status, doctor, export) */
+
+const hostResults = new Map();
+
+function callHost(type, payload = {}) {
+  if (!host) return Promise.reject(new Error("Open Therennai from its desktop app to use this command."));
+  const requestId = newId();
+  return new Promise((resolve) => {
+    hostResults.set(requestId, resolve);
+    host.postMessage({ type, requestId, ...payload });
+  });
+}
+
+function notifyHost(type, payload = {}) {
+  if (host) host.postMessage({ type, ...payload });
+}
 
 /* Markdown (small subset: paragraphs, headings, lists, code, bold, italics) */
 
 function escapeHtml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // Wraps the command word in a highlight when the text starts with "/" (e.g. "/install model 1.0").
@@ -144,10 +165,14 @@ function renderChatList() {
 }
 
 function renderAssistantText(element, message) {
-  const thinking = pending !== null && pending.message === message && !message.text;
-  element.innerHTML = thinking
-    ? '<div class="thinking" aria-label="Thinking"><span></span><span></span><span></span></div>'
-    : renderMarkdown(message.text);
+  const thinking = message.loading || (pending !== null && pending.message === message && !message.text);
+  if (thinking) {
+    element.innerHTML = '<div class="thinking" aria-label="Thinking"><span></span><span></span><span></span></div>';
+  } else if (message.html) {
+    element.innerHTML = message.html;
+  } else {
+    element.innerHTML = renderMarkdown(message.text);
+  }
 }
 
 function renderConversation() {
@@ -191,6 +216,20 @@ function renderComposer() {
   els.send.disabled = !pending && !els.prompt.value.trim();
 }
 
+function applyTheme() {
+  if (state.theme === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = state.theme;
+  notifyHost("theme", { value: state.theme });
+}
+
+let toastTimer = null;
+function showToast(text) {
+  els.toast.textContent = text;
+  els.toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+}
+
 /* Pickers (permissions and model) */
 
 const pickers = [
@@ -200,7 +239,7 @@ const pickers = [
   },
   {
     root: $("modelPicker"), button: $("modelBtn"), menu: $("modelMenu"), label: $("modelLabel"),
-    items: MODELS, current: currentModel, select: (id) => { state.modelId = id; },
+    items: MODELS, current: currentModel, select: (id) => selectModel(id),
   },
 ];
 
@@ -222,7 +261,6 @@ function renderPicker(picker) {
     opt.onclick = () => {
       picker.select(item.id);
       saveState();
-      if (host && picker.items === MODELS) host.postMessage({ type: "preload", model: item.id });
       renderPicker(picker);
       setPickerOpen(picker, false);
     };
@@ -243,7 +281,7 @@ function render() {
   renderComposer();
 }
 
-/* Actions */
+/* Chats */
 
 function openChat(id) {
   state.activeId = id;
@@ -266,6 +304,11 @@ function deleteChat(id) {
   render();
 }
 
+function selectModel(id) {
+  state.modelId = id;
+  notifyHost("preload", { model: id });
+}
+
 // Adds the user's message and an empty reply to the active chat (creating one if needed).
 function addExchange(text, model, isCommand) {
   let chat = activeChat();
@@ -280,19 +323,22 @@ function addExchange(text, model, isCommand) {
   return { chat, reply };
 }
 
-function replyLocally(reply, text) {
-  reply.text = text;
-  reply.error = true;
-  saveState();
-  render();
+// Messages the model sees: commands, errors and loading replies are left out; a /compact summary
+// stands in for everything before it.
+function buildHistory(chat) {
+  return (chat ? chat.messages : [])
+    .filter((m) => !m.error && !m.command && !m.loading && m.text)
+    .map((m) => m.summary
+      ? { role: "system", content: "Summary of the earlier conversation:\n" + m.summaryText }
+      : { role: m.role, content: m.text });
 }
 
-function startRequest(request, chat, reply) {
+function startRequest(kind, request, chat, reply) {
   if (!host) {
-    replyLocally(reply, "Open Therennai from its desktop app to chat.");
+    replyText(reply, "Open Therennai from its desktop app to chat.", true);
     return;
   }
-  pending = { requestId: newId(), chat, message: reply, element: null };
+  pending = { requestId: newId(), kind, chat, message: reply, element: null };
   saveState();
   render();
   host.postMessage({ ...request, requestId: pending.requestId });
@@ -300,76 +346,17 @@ function startRequest(request, chat, reply) {
 
 function sendMessage(text) {
   const model = currentModel();
-  const chat = activeChat();
-  // Commands and their replies aren't part of the conversation the model sees.
-  const history = (chat ? chat.messages : [])
-    .filter((m) => !m.error && !m.command && m.text)
-    .map((m) => ({ role: m.role, content: m.text }));
+  const history = buildHistory(activeChat());
   history.push({ role: "user", content: text });
 
   const exchange = addExchange(text, model, false);
-  startRequest(
-    { type: "chat", model: model.id, permission: currentPermission().id, messages: history },
-    exchange.chat, exchange.reply);
-}
-
-function runCommand(text) {
-  // "/install model 1.0", "/install model all" (and the same for /uninstall)
-  const [name, target, version] = text.trim().split(/\s+/);
-  const available = COMMANDS.map((c) => `**${c.text}**`).join(", ");
-
-  if (name === "/install" || name === "/uninstall") {
-    const type = name.slice(1);
-    if (target === "all" || (target === "model" && version === "all")) {
-      const exchange = addExchange(text, currentModel(), true);
-      startRequest({ type, model: "all" }, exchange.chat, exchange.reply);
-      return;
-    }
-    const model = target === "model" && version
-      ? MODELS.find((m) => m.version === version || m.id === version)
-      : null;
-    const exchange = addExchange(text, model || currentModel(), true);
-    if (!model) {
-      const reason = target === "model" && version ? `There's no Therennai ${version}.` : "Tell me which model.";
-      replyLocally(exchange.reply, `${reason} Commands: ${available}`);
-      return;
-    }
-    startRequest({ type, model: model.id }, exchange.chat, exchange.reply);
-    return;
-  }
-
-  const exchange = addExchange(text, currentModel(), true);
-  replyLocally(exchange.reply, `Unknown command ${name}. Commands: ${available}`);
-}
-
-function notInstalledMessage(modelName) {
-  const model = MODELS.find((m) => m.name === modelName) || currentModel();
-  return `${model.name} isn't installed yet. Type **/install model ${model.version}** to install it.`;
-}
-
-/* Slash command suggestions */
-
-function renderCommandMenu() {
-  const value = els.prompt.value;
-  const matches = value.startsWith("/") && !value.includes("\n")
-    ? COMMANDS.filter((c) => c.text.startsWith(value.trim()) && c.text !== value.trim())
-    : [];
-  els.commandMenu.hidden = matches.length === 0;
-  els.commandMenu.replaceChildren();
-  for (const command of matches) {
-    const opt = document.createElement("button");
-    opt.type = "button";
-    opt.className = "picker-option";
-    opt.innerHTML = '<div class="option-text"><div class="option-name"></div><div class="option-desc"></div></div>';
-    opt.querySelector(".option-name").textContent = command.text;
-    opt.querySelector(".option-desc").textContent = command.description;
-    opt.onclick = () => {
-      els.prompt.value = command.text;
-      autoResize();
-      els.prompt.focus();
-    };
-    els.commandMenu.append(opt);
-  }
+  startRequest("chat", {
+    type: "chat",
+    model: model.id,
+    permission: currentPermission().id,
+    memory: state.memory,
+    messages: history,
+  }, exchange.chat, exchange.reply);
 }
 
 function stopReply() {
@@ -382,9 +369,21 @@ function finishReply() {
   render();
 }
 
+function notInstalledMessage(modelName) {
+  const model = MODELS.find((m) => m.name === modelName) || currentModel();
+  return `${model.name} isn't installed yet. Type **/install model ${model.version}** to install it.`;
+}
+
 if (host) {
   host.addEventListener("message", (e) => {
     const data = e.data;
+
+    if (data.type === "result") {
+      const resolve = hostResults.get(data.requestId);
+      hostResults.delete(data.requestId);
+      if (resolve) resolve(data.data);
+      return;
+    }
     if (!pending || data.requestId !== pending.requestId) return;
 
     if (data.type === "chunk") {
@@ -402,14 +401,421 @@ if (host) {
       finishReply();
     } else if (data.type === "done") {
       if (data.stopped) {
-        pending.message.text = pending.message.command
-          ? (pending.message.text ? pending.message.text + "\n\n" : "") + "*Stopped.*"
-          : (pending.message.text ? pending.message.text + "\n\n" : "") + "*Stopped.*";
+        pending.message.text = (pending.message.text ? pending.message.text + "\n\n" : "") + "*Stopped.*";
+      } else if (pending.kind === "compact") {
+        finishCompact(pending.chat, pending.message);
+      } else if (pending.kind === "chat" && data.usage) {
+        pending.chat.usage = data.usage;
       }
       finishReply();
     }
   });
 }
+
+/* Slash commands */
+
+// One entry per command for /help and the suggestion list. "args" are shown as a hint.
+const COMMANDS = [
+  { name: "/help", description: "Show all commands" },
+  { name: "/new", description: "Start a new chat" },
+  { name: "/clear", description: "Clear this chat's messages" },
+  { name: "/model", args: "[version]", description: "Show models or switch to one" },
+  { name: "/permissions", aliases: ["/approvals"], args: "[mode]", description: "Show or set what Therennai may do on your PC" },
+  { name: "/install", args: "model <version|all>", description: "Install a model" },
+  { name: "/uninstall", args: "model <version|all>", description: "Uninstall a model and free its disk space" },
+  { name: "/status", description: "Model, engine, GPU and disk status" },
+  { name: "/doctor", description: "Check that everything works" },
+  { name: "/context", description: "How much of the model's context this chat uses" },
+  { name: "/compact", description: "Summarize this chat to free up context" },
+  { name: "/memory", args: "[add <text> | forget <n> | clear]", description: "Things Therennai always remembers" },
+  { name: "/rewind", description: "Remove your last message and its reply" },
+  { name: "/resume", args: "[number]", description: "Reopen an earlier chat" },
+  { name: "/rename", args: "<title>", description: "Rename this chat" },
+  { name: "/export", description: "Save this chat as a Markdown file" },
+  { name: "/theme", args: "[system | light | dark]", description: "Change the theme" },
+  { name: "/bug", aliases: ["/feedback"], description: "Report a problem on GitHub" },
+  { name: "/exit", aliases: ["/quit"], description: "Close Therennai" },
+];
+
+// Entries for the suggestion list; models get their own install/uninstall lines.
+const SUGGESTIONS = COMMANDS.flatMap((c) => {
+  if (c.name === "/install" || c.name === "/uninstall") {
+    const verb = c.name === "/install" ? "Install" : "Uninstall";
+    return [
+      ...MODELS.map((m) => ({ insert: `${c.name} model ${m.version}`, label: `${c.name} model ${m.version}`, description: `${verb} ${m.name}` })),
+      { insert: `${c.name} model all`, label: `${c.name} model all`, description: `${verb} every model` },
+    ];
+  }
+  return [{
+    insert: c.args ? c.name + " " : c.name,
+    label: c.args ? `${c.name} ${c.args}` : c.name,
+    description: c.description,
+  }];
+});
+
+function findCommand(name) {
+  return COMMANDS.find((c) => c.name === name || (c.aliases || []).includes(name));
+}
+
+async function runCommand(text) {
+  const trimmed = text.trim();
+  const [typed] = trimmed.split(/\s+/);
+  const args = trimmed.slice(typed.length).trim();
+  const command = findCommand(typed.toLowerCase());
+  if (!command) {
+    commandReply(text, `Unknown command **${typed}**. Type **/help** to see all commands.`, true);
+    return;
+  }
+  await HANDLERS[command.name](args, text);
+}
+
+// Shows a command and its reply in the chat. Returns the reply so it can be filled in later.
+function commandReply(text, replyMarkdown, isError = false) {
+  const { reply } = addExchange(text, currentModel(), true);
+  replyText(reply, replyMarkdown, isError);
+  return reply;
+}
+
+function replyText(reply, markdown, isError = false) {
+  reply.text = markdown;
+  reply.error = isError;
+  reply.loading = false;
+  saveState();
+  render();
+}
+
+function replyHtml(reply, html, plainText) {
+  reply.html = html;
+  reply.text = plainText;
+  reply.loading = false;
+  saveState();
+  render();
+}
+
+// Runs an async command that needs the host, showing the thinking dots until it answers.
+async function commandWithResult(text, work) {
+  const { reply } = addExchange(text, currentModel(), true);
+  reply.loading = true;
+  saveState();
+  render();
+  try {
+    await work(reply);
+  } catch (err) {
+    replyText(reply, err.message, true);
+  }
+}
+
+const HANDLERS = {
+  "/help": (_, text) => {
+    const rows = COMMANDS.map((c) => {
+      const names = [c.name, ...(c.aliases || [])].map((n) => `<code>${escapeHtml(n)}</code>`).join(" ");
+      const args = c.args ? ` <span class="muted">${escapeHtml(c.args)}</span>` : "";
+      return `<tr><td>${names}${args}</td><td>${escapeHtml(c.description)}</td></tr>`;
+    }).join("");
+    const plain = COMMANDS.map((c) => `- ${c.name}${c.args ? " " + c.args : ""}: ${c.description}`).join("\n");
+    const { reply } = addExchange(text, currentModel(), true);
+    replyHtml(reply,
+      `<p><strong>Commands</strong></p><table><tbody>${rows}</tbody></table>` +
+      "<p>Type <code>/</code> in the message box to pick one.</p>",
+      "Commands:\n" + plain);
+  },
+
+  "/new": () => {
+    newChat();
+    showToast("New chat");
+  },
+
+  "/clear": () => {
+    const chat = activeChat();
+    if (!chat) return showToast("Nothing to clear");
+    if (pending && pending.chat === chat) stopReply();
+    chat.messages = [];
+    chat.usage = null;
+    saveState();
+    render();
+    showToast("Chat cleared");
+  },
+
+  "/model": (args, text) => {
+    if (!args) {
+      const list = MODELS.map((m) => `- ${m.id === currentModel().id ? "✓ " : ""}**${m.name}**: type **/model ${m.version}**`).join("\n");
+      commandReply(text, `Models:\n\n${list}`);
+      return;
+    }
+    const model = MODELS.find((m) => [m.version, m.id, m.name.toLowerCase()].includes(args.toLowerCase()));
+    if (!model) return commandReply(text, `There's no model called **${args}**. Type **/model** to see them.`, true);
+    selectModel(model.id);
+    saveState();
+    pickers.forEach(renderPicker);
+    showToast(`Switched to ${model.name}`);
+  },
+
+  "/permissions": (args, text) => {
+    if (!args) {
+      const list = PERMISSIONS.map((p) =>
+        `- ${p.id === currentPermission().id ? "✓ " : ""}**${p.name}** (\`${p.id}\`): ${p.description}`).join("\n");
+      commandReply(text,
+        `Permission modes:\n\n${list}\n\nType **/permissions <mode>**, e.g. **/permissions ask**. ` +
+        "Actions on your PC arrive in a later version, so every mode only chats for now.");
+      return;
+    }
+    const wanted = args.toLowerCase();
+    const mode = PERMISSIONS.find((p) => p.id === wanted || p.name.toLowerCase() === wanted || p.name.toLowerCase().startsWith(wanted));
+    if (!mode) return commandReply(text, `There's no permission mode called **${args}**. Type **/permissions** to see them.`, true);
+    state.permissionId = mode.id;
+    saveState();
+    pickers.forEach(renderPicker);
+    showToast(`Permissions: ${mode.name}`);
+  },
+
+  "/install": (args, text) => runInstallCommand("install", args, text),
+  "/uninstall": (args, text) => runInstallCommand("uninstall", args, text),
+
+  "/status": (_, text) => commandWithResult(text, async (reply) => {
+    const s = await callHost("status");
+    const chat = activeChat();
+    const lines = [
+      `- **Model:** ${currentModel().name}`,
+      `- **Permissions:** ${currentPermission().name}`,
+      `- **Theme:** ${state.theme}`,
+      `- **Memory:** ${state.memory.length} saved ${state.memory.length === 1 ? "item" : "items"}`,
+      `- **Chats:** ${state.chats.length}${chat ? `, this one has ${chat.messages.length} messages` : ""}`,
+      `- **App version:** ${s.appVersion}`,
+      `- **Therennai engine:** ${!s.installed ? "not installed" : s.running ? `running (version ${s.engineVersion})` : "installed, starts when needed"}`,
+    ];
+    if (s.running) {
+      const installed = MODELS.filter((m) => (s.models || []).some((x) => x.name === m.id));
+      lines.push(`- **Installed models:** ${installed.length ? installed.map((m) => m.name).join(", ") : "none"}`);
+      const loaded = (s.loaded || []).find((x) => x.name === currentModel().id);
+      lines.push(`- **In memory:** ${loaded ? `${loaded.sizeGB} GB, ${loaded.gpuGB} GB of it on the GPU` : "not loaded yet"}`);
+    }
+    lines.push(`- **Free disk space:** ${s.diskFreeGB} GB`);
+    replyText(reply, "**Status**\n\n" + lines.join("\n"));
+  }),
+
+  "/doctor": (_, text) => commandWithResult(text, async (reply) => {
+    const { checks } = await callHost("doctor");
+    const lines = checks.map((c) => `- ${c.ok ? "✓" : "✗"} **${c.name}**: ${c.detail}`);
+    const failed = checks.filter((c) => !c.ok).length;
+    replyText(reply,
+      "**Health check**\n\n" + lines.join("\n") + "\n\n" +
+      (failed ? `${failed} ${failed === 1 ? "problem" : "problems"} found.` : "Everything looks good."),
+      failed > 0);
+  }),
+
+  "/context": (_, text) => {
+    const chat = activeChat();
+    const model = currentModel();
+    const history = buildHistory(chat);
+    if (!history.length) return commandReply(text, "This chat is empty, so it isn't using any context yet.");
+
+    // Real counts from the last reply when there is one; otherwise about 4 characters per token.
+    const measured = chat.usage ? chat.usage.promptTokens + chat.usage.replyTokens : 0;
+    const estimated = Math.round(history.reduce((n, m) => n + m.content.length, 0) / 4) + 400;
+    const used = measured || estimated;
+    const percent = Math.min(100, Math.round((used / model.contextTokens) * 100));
+    const summary = `${measured ? "" : "About "}${formatNumber(used)} of ${formatNumber(model.contextTokens)} tokens (${percent}%)`;
+    const tip = percent >= 70
+      ? "This chat is getting long. Type <strong>/compact</strong> to summarize it, or <strong>/new</strong> to start fresh."
+      : "When it gets full, Therennai starts forgetting the beginning of the chat. <strong>/compact</strong> frees up space.";
+    const { reply } = addExchange(text, model, true);
+    replyHtml(reply,
+      `<p><strong>Context</strong>: ${escapeHtml(summary)}</p>` +
+      `<div class="meter"><span style="width:${percent}%"></span></div><p>${tip}</p>`,
+      `Context: ${summary}`);
+  },
+
+  "/compact": (_, text) => {
+    const chat = activeChat();
+    const history = buildHistory(chat);
+    if (history.length < 2) return commandReply(text, "There's nothing to compact yet.");
+    const model = currentModel();
+    const { reply } = addExchange(text, model, true);
+    startRequest("compact", {
+      type: "chat",
+      model: model.id,
+      permission: currentPermission().id,
+      memory: state.memory,
+      messages: [...history, { role: "user", content: COMPACT_PROMPT }],
+    }, chat, reply);
+  },
+
+  "/memory": (args, text) => {
+    const [sub] = args.split(/\s+/);
+    const rest = args.slice(sub.length).trim();
+    if (!args || sub === "list") {
+      const list = state.memory.map((m, i) => `${i + 1}. ${m}`).join("\n");
+      commandReply(text, state.memory.length
+        ? `**Memory**\n\n${list}\n\nType **/memory forget <number>** to remove one.`
+        : "Memory is empty. Type **/memory add <text>** and Therennai will remember it in every chat.");
+    } else if (sub === "clear") {
+      state.memory = [];
+      saveState();
+      showToast("Memory cleared");
+    } else if (sub === "forget") {
+      const index = parseInt(rest, 10) - 1;
+      if (!(index >= 0 && index < state.memory.length)) {
+        return commandReply(text, "Tell me which number to forget. Type **/memory** to see the list.", true);
+      }
+      state.memory.splice(index, 1);
+      saveState();
+      showToast("Forgotten");
+    } else {
+      const note = sub === "add" ? rest : args;
+      if (!note) return commandReply(text, "Type **/memory add <text>** to save something.", true);
+      state.memory.push(note);
+      saveState();
+      showToast("Saved to memory");
+    }
+  },
+
+  "/rewind": () => {
+    const chat = activeChat();
+    const lastUser = chat ? chat.messages.map((m) => m.role).lastIndexOf("user") : -1;
+    if (lastUser < 0) return showToast("Nothing to rewind");
+    if (pending && pending.chat === chat) stopReply();
+    chat.messages.splice(lastUser);
+    chat.usage = null;
+    saveState();
+    render();
+    showToast("Removed the last message");
+  },
+
+  "/resume": (args, text) => {
+    const others = state.chats.filter((c) => c.id !== state.activeId);
+    if (!args) {
+      if (!others.length) return commandReply(text, "There are no other chats yet.");
+      const list = others.slice(0, 20).map((c, i) => `${i + 1}. ${c.title} (${c.messages.length} messages)`).join("\n");
+      commandReply(text, `**Recent chats**\n\n${list}\n\nType **/resume <number>** to open one.`);
+      return;
+    }
+    const chat = others[parseInt(args, 10) - 1];
+    if (!chat) return commandReply(text, "There's no chat with that number. Type **/resume** to see them.", true);
+    openChat(chat.id);
+    showToast(`Opened "${chat.title}"`);
+  },
+
+  "/rename": (args) => {
+    const chat = activeChat();
+    if (!chat) return showToast("Start a chat first");
+    if (!args) return showToast("Type /rename <title>");
+    chat.title = args.slice(0, 80);
+    saveState();
+    render();
+    showToast("Chat renamed");
+  },
+
+  "/export": async () => {
+    const chat = activeChat();
+    if (!chat || !chat.messages.length) return showToast("Nothing to export");
+    const markdown = `# ${chat.title}\n\n` + chat.messages
+      .filter((m) => m.text)
+      .map((m) => `**${m.role === "user" ? "You" : m.model}:**\n\n${m.text}`)
+      .join("\n\n---\n\n") + "\n";
+    try {
+      const result = await callHost("export", { title: chat.title, markdown });
+      if (result.path) showToast(`Saved to ${result.path}`);
+    } catch (err) {
+      showToast(err.message);
+    }
+  },
+
+  "/theme": (args, text) => {
+    const wanted = args.toLowerCase();
+    if (!wanted) {
+      state.theme = THEMES[(THEMES.indexOf(state.theme) + 1) % THEMES.length];
+    } else if (THEMES.includes(wanted)) {
+      state.theme = wanted;
+    } else {
+      return commandReply(text, "Themes: **/theme system**, **/theme light** or **/theme dark**.", true);
+    }
+    saveState();
+    applyTheme();
+    showToast(`Theme: ${state.theme}`);
+  },
+
+  "/bug": () => {
+    notifyHost("report-bug");
+    showToast("Opening GitHub issues in your browser");
+  },
+
+  "/exit": () => notifyHost("exit"),
+};
+
+function runInstallCommand(type, args, text) {
+  // "/install model 1.0" or "/install model all"
+  const [target, version] = args.split(/\s+/);
+  const available = SUGGESTIONS.filter((s) => s.insert.startsWith("/" + type)).map((s) => `**${s.label}**`).join(", ");
+
+  if (target === "all" || (target === "model" && version === "all")) {
+    const exchange = addExchange(text, currentModel(), true);
+    startRequest("install", { type, model: "all" }, exchange.chat, exchange.reply);
+    return;
+  }
+  const model = target === "model" && version
+    ? MODELS.find((m) => m.version === version || m.id === version)
+    : null;
+  const exchange = addExchange(text, model || currentModel(), true);
+  if (!model) {
+    const reason = target === "model" && version ? `There's no Therennai ${version}.` : "Tell me which model.";
+    replyText(exchange.reply, `${reason} Commands: ${available}`, true);
+    return;
+  }
+  startRequest("install", { type, model: model.id }, exchange.chat, exchange.reply);
+}
+
+function finishCompact(chat, reply) {
+  const summary = reply.text.trim();
+  if (!summary) return;
+  chat.messages = [{
+    role: "assistant",
+    model: reply.model,
+    text: "**Summary of the earlier conversation**\n\n" + summary,
+    summary: true,
+    summaryText: summary,
+  }];
+  chat.usage = null;
+  showToast("Chat compacted");
+}
+
+/* Slash command suggestions */
+
+let suggestionIndex = 0;
+let visibleSuggestions = [];
+
+function renderCommandMenu() {
+  const value = els.prompt.value;
+  const typed = value.trimStart();
+  visibleSuggestions = value.startsWith("/") && !value.includes("\n")
+    ? SUGGESTIONS.filter((s) => s.insert.startsWith(typed) && s.insert.trim() !== typed.trim())
+    : [];
+  suggestionIndex = Math.min(suggestionIndex, Math.max(0, visibleSuggestions.length - 1));
+  els.commandMenu.hidden = visibleSuggestions.length === 0;
+  els.commandMenu.replaceChildren();
+
+  visibleSuggestions.forEach((suggestion, i) => {
+    const opt = document.createElement("button");
+    opt.type = "button";
+    opt.className = "picker-option" + (i === suggestionIndex ? " selected" : "");
+    opt.innerHTML = '<div class="option-text"><div class="option-name"></div><div class="option-desc"></div></div>';
+    opt.querySelector(".option-name").textContent = suggestion.label;
+    opt.querySelector(".option-desc").textContent = suggestion.description;
+    opt.onmousedown = (e) => e.preventDefault();
+    opt.onclick = () => applySuggestion(suggestion);
+    els.commandMenu.append(opt);
+  });
+  const selected = els.commandMenu.children[suggestionIndex];
+  if (selected) selected.scrollIntoView({ block: "nearest" });
+}
+
+function applySuggestion(suggestion) {
+  els.prompt.value = suggestion.insert;
+  suggestionIndex = 0;
+  autoResize();
+  els.prompt.focus();
+}
+
+/* Composer */
 
 function autoResize() {
   els.prompt.style.height = "auto";
@@ -432,11 +838,31 @@ $("collapseBtn").onclick = () => { state.sidebarCollapsed = true; saveState(); r
 $("openSidebarBtn").onclick = () => { state.sidebarCollapsed = false; saveState(); render(); };
 els.search.oninput = renderChatList;
 
-els.prompt.addEventListener("input", autoResize);
+els.prompt.addEventListener("input", () => { suggestionIndex = 0; autoResize(); });
 els.prompt.addEventListener("scroll", () => { els.promptHighlight.scrollTop = els.prompt.scrollTop; });
 els.prompt.addEventListener("keydown", (e) => {
+  const menuOpen = !els.commandMenu.hidden && visibleSuggestions.length > 0;
+  if (menuOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    suggestionIndex = (suggestionIndex + step + visibleSuggestions.length) % visibleSuggestions.length;
+    renderCommandMenu();
+    return;
+  }
+  if (menuOpen && e.key === "Tab") {
+    e.preventDefault();
+    applySuggestion(visibleSuggestions[suggestionIndex]);
+    return;
+  }
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
+    // Enter picks the highlighted suggestion when it still needs more text (like "/model ").
+    const suggestion = menuOpen ? visibleSuggestions[suggestionIndex] : null;
+    if (suggestion && suggestion.insert.endsWith(" ")) {
+      applySuggestion(suggestion);
+      return;
+    }
+    if (suggestion) els.prompt.value = suggestion.insert;
     if (!pending) els.composer.requestSubmit();
   }
 });
@@ -475,7 +901,15 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Replies interrupted by closing the app can't resume; mark them so they don't spin forever.
+for (const chat of state.chats) {
+  for (const msg of chat.messages) {
+    if (msg.loading) { msg.loading = false; msg.text = msg.text || "*Stopped.*"; }
+  }
+}
+
+applyTheme();
 render();
 els.prompt.focus();
 // Load the selected model in the background so the first reply is quick.
-if (host) host.postMessage({ type: "preload", model: currentModel().id });
+notifyHost("preload", { model: currentModel().id });

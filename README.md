@@ -25,14 +25,33 @@ Then open Therennai and type **/install model 1.0** in the chat. Therennai shows
 
 ## Commands
 
-Type `/` in the message box to see them.
+Type `/` in the message box to see them. Use the arrow keys and Tab or Enter to pick one, or type `/help`.
 
 | Command | What it does |
 |---|---|
+| `/help` | Lists all commands |
+| `/new` | Starts a new chat |
+| `/clear` | Clears the current chat's messages |
+| `/model [version]` | Shows the models, or switches to one, e.g. `/model 1.0` |
+| `/permissions [mode]` (`/approvals`) | Shows the permission modes, or sets one: `chat`, `ask`, `files`, `full` |
 | `/install model <version>` | Installs one model, e.g. `/install model 1.0` |
 | `/install model all` | Installs every model |
 | `/uninstall model <version>` | Removes one model and frees its disk space, e.g. `/uninstall model 1.0` |
 | `/uninstall model all` | Removes every model |
+| `/status` | Shows the model, permissions, engine, memory use, GPU and disk space |
+| `/doctor` | Checks that the app, engine, models, GPU and disk are all OK |
+| `/context` | Shows how much of the model's context window the chat uses |
+| `/compact` | Replaces the chat with a summary to free up context |
+| `/memory [add <text> \| forget <n> \| clear]` | Things Therennai remembers in every chat |
+| `/rewind` | Removes your last message and its reply |
+| `/resume [number]` | Lists earlier chats, or opens one |
+| `/rename <title>` | Renames the current chat |
+| `/export` | Saves the chat as a Markdown file |
+| `/theme [system \| light \| dark]` | Changes the theme (with no argument, cycles through them) |
+| `/bug` (`/feedback`) | Opens a new GitHub issue |
+| `/exit` (`/quit`) | Closes Therennai |
+
+Commands for coding agents, such as `/init`, `/review`, `/diff`, `/mcp` and `/agents`, will come once Therennai can act on your PC.
 
 Chats are saved on your machine in `%LOCALAPPDATA%\Therennai`. Nothing is sent over the internet.
 

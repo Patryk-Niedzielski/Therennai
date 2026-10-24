@@ -15,8 +15,9 @@
   color-scheme: light;
 }
 
+/* Dark theme: follows Windows unless /theme picked light or dark */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1e1e1c;
     --sidebar: #171716;
     --surface: #2a2a27;
@@ -29,6 +30,19 @@
     --shadow: 0 8px 28px rgba(0, 0, 0, .4);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #1e1e1c;
+  --sidebar: #171716;
+  --surface: #2a2a27;
+  --text: #ecece8;
+  --muted: #9a9a93;
+  --border: #3a3a36;
+  --hover: #2c2c29;
+  --user-bubble: #33332f;
+  --command: rgba(124, 138, 255, .32);
+  --shadow: 0 8px 28px rgba(0, 0, 0, .4);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -177,6 +191,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .empty h1 { margin: 0; font-size: 28px; font-weight: 500; }
 .empty-mark { width: 44px; height: 44px; }
 .conversation.has-messages .empty { display: none; }
+.conversation:not(.has-messages) .messages { display: none; }
 
 .messages {
   max-width: 760px;
@@ -221,7 +236,35 @@ button { font: inherit; color: inherit; cursor: pointer; }
   box-shadow: var(--shadow);
   z-index: 10;
 }
+.command-menu { max-height: 320px; overflow-y: auto; }
 .command-menu .option-name { font-family: Consolas, monospace; }
+.command-menu .picker-option.selected { background: var(--hover); }
+
+/* Short confirmations for commands like /new or /theme */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 120px;
+  transform: translate(-50%, 8px);
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+  z-index: 30;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Tables (e.g. /help) and the context meter */
+.md table { margin: 0 0 10px; border-collapse: collapse; font-size: 13.5px; }
+.md th, .md td { padding: 5px 12px 5px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.md th { font-weight: 600; }
+.md .muted { color: var(--muted); }
+.meter { height: 8px; margin: 4px 0 10px; border-radius: 4px; background: var(--user-bubble); overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--accent); }
 
 /* Highlight for the command word (e.g. "/install"): a layer behind the textarea that mirrors its text */
 .prompt-wrap { position: relative; }
