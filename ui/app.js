@@ -1,8 +1,16 @@
 // Therennai interface. Replies come from the desktop host (src/Therennai), which runs
 // the selected model on this PC and streams the text back over window.chrome.webview.
 
+// Each model is installed separately with "/install model <version>".
 const MODELS = [
-  { id: "therennai:1.0", name: "Therennai 1.0", description: "Runs on this PC" },
+  { id: "therennai:1.0", name: "Therennai 1.0", version: "1.0", description: "Runs on this PC" },
+];
+
+const COMMANDS = [
+  ...MODELS.map((m) => ({ text: `/install model ${m.version}`, description: `Install ${m.name}` })),
+  { text: "/install model all", description: "Install every model" },
+  ...MODELS.map((m) => ({ text: `/uninstall model ${m.version}`, description: `Uninstall ${m.name} and free its disk space` })),
+  { text: "/uninstall model all", description: "Uninstall every model" },
 ];
 
 const PERMISSIONS = [
@@ -26,6 +34,7 @@ const els = {
   composer: $("composer"),
   prompt: $("prompt"),
   send: $("sendBtn"),
+  commandMenu: $("commandMenu"),
 };
 
 let state = loadState();
@@ -144,9 +153,6 @@ function renderConversation() {
     if (msg.role === "user") {
       row.textContent = msg.text;
     } else {
-      const icon = document.createElement("img");
-      icon.src = "icon.svg";
-      icon.alt = "";
       const body = document.createElement("div");
       body.className = "body";
       const meta = document.createElement("div");
@@ -157,7 +163,7 @@ function renderConversation() {
       renderAssistantText(text, msg);
       if (pending && pending.message === msg) pending.element = text;
       body.append(meta, text);
-      row.append(icon, body);
+      row.append(body);
     }
     els.messages.append(row);
   }
@@ -206,6 +212,7 @@ function renderPicker(picker) {
     opt.onclick = () => {
       picker.select(item.id);
       saveState();
+      if (host && picker.items === MODELS) host.postMessage({ type: "preload", model: item.id });
       renderPicker(picker);
       setPickerOpen(picker, false);
     };
@@ -249,41 +256,110 @@ function deleteChat(id) {
   render();
 }
 
-function sendMessage(text) {
+// Adds the user's message and an empty reply to the active chat (creating one if needed).
+function addExchange(text, model, isCommand) {
   let chat = activeChat();
   if (!chat) {
     chat = { id: newId(), title: text.slice(0, 40), messages: [] };
     state.chats.unshift(chat);
     state.activeId = chat.id;
   }
-  const model = currentModel();
-  const history = chat.messages
-    .filter((m) => !m.error && m.text)
-    .map((m) => ({ role: m.role, content: m.text }));
-  history.push({ role: "user", content: text });
-
-  chat.messages.push({ role: "user", text });
-  const reply = { role: "assistant", model: model.name, text: "" };
+  chat.messages.push({ role: "user", text, command: isCommand });
+  const reply = { role: "assistant", model: model.name, text: "", command: isCommand };
   chat.messages.push(reply);
+  return { chat, reply };
+}
 
+function replyLocally(reply, text) {
+  reply.text = text;
+  reply.error = true;
+  saveState();
+  render();
+}
+
+function startRequest(request, chat, reply) {
   if (!host) {
-    reply.text = "Open Therennai from its desktop app to chat.";
-    reply.error = true;
-    saveState();
-    render();
+    replyLocally(reply, "Open Therennai from its desktop app to chat.");
     return;
   }
-
   pending = { requestId: newId(), chat, message: reply, element: null };
   saveState();
   render();
-  host.postMessage({
-    type: "chat",
-    requestId: pending.requestId,
-    model: model.id,
-    permission: currentPermission().id,
-    messages: history,
-  });
+  host.postMessage({ ...request, requestId: pending.requestId });
+}
+
+function sendMessage(text) {
+  const model = currentModel();
+  const chat = activeChat();
+  // Commands and their replies aren't part of the conversation the model sees.
+  const history = (chat ? chat.messages : [])
+    .filter((m) => !m.error && !m.command && m.text)
+    .map((m) => ({ role: m.role, content: m.text }));
+  history.push({ role: "user", content: text });
+
+  const exchange = addExchange(text, model, false);
+  startRequest(
+    { type: "chat", model: model.id, permission: currentPermission().id, messages: history },
+    exchange.chat, exchange.reply);
+}
+
+function runCommand(text) {
+  // "/install model 1.0", "/install model all" (and the same for /uninstall)
+  const [name, target, version] = text.trim().split(/\s+/);
+  const available = COMMANDS.map((c) => `**${c.text}**`).join(", ");
+
+  if (name === "/install" || name === "/uninstall") {
+    const type = name.slice(1);
+    if (target === "all" || (target === "model" && version === "all")) {
+      const exchange = addExchange(text, currentModel(), true);
+      startRequest({ type, model: "all" }, exchange.chat, exchange.reply);
+      return;
+    }
+    const model = target === "model" && version
+      ? MODELS.find((m) => m.version === version || m.id === version)
+      : null;
+    const exchange = addExchange(text, model || currentModel(), true);
+    if (!model) {
+      const reason = target === "model" && version ? `There's no Therennai ${version}.` : "Tell me which model.";
+      replyLocally(exchange.reply, `${reason} Commands: ${available}`);
+      return;
+    }
+    startRequest({ type, model: model.id }, exchange.chat, exchange.reply);
+    return;
+  }
+
+  const exchange = addExchange(text, currentModel(), true);
+  replyLocally(exchange.reply, `Unknown command ${name}. Commands: ${available}`);
+}
+
+function notInstalledMessage(modelName) {
+  const model = MODELS.find((m) => m.name === modelName) || currentModel();
+  return `${model.name} isn't installed yet. Type **/install model ${model.version}** to install it.`;
+}
+
+/* Slash command suggestions */
+
+function renderCommandMenu() {
+  const value = els.prompt.value;
+  const matches = value.startsWith("/") && !value.includes("\n")
+    ? COMMANDS.filter((c) => c.text.startsWith(value.trim()) && c.text !== value.trim())
+    : [];
+  els.commandMenu.hidden = matches.length === 0;
+  els.commandMenu.replaceChildren();
+  for (const command of matches) {
+    const opt = document.createElement("button");
+    opt.type = "button";
+    opt.className = "picker-option";
+    opt.innerHTML = '<div class="option-text"><div class="option-name"></div><div class="option-desc"></div></div>';
+    opt.querySelector(".option-name").textContent = command.text;
+    opt.querySelector(".option-desc").textContent = command.description;
+    opt.onclick = () => {
+      els.prompt.value = command.text;
+      autoResize();
+      els.prompt.focus();
+    };
+    els.commandMenu.append(opt);
+  }
 }
 
 function stopReply() {
@@ -307,12 +383,19 @@ if (host) {
         renderAssistantText(pending.element, pending.message);
         scrollToBottom();
       }
+    } else if (data.type === "status") {
+      pending.message.text = data.text;
+      if (pending.element && pending.element.isConnected) renderAssistantText(pending.element, pending.message);
     } else if (data.type === "error") {
-      pending.message.text = data.message;
+      pending.message.text = data.code === "not-installed" ? notInstalledMessage(pending.message.model) : data.message;
       pending.message.error = true;
       finishReply();
     } else if (data.type === "done") {
-      if (!pending.message.text) pending.message.text = "*Stopped.*";
+      if (data.stopped) {
+        pending.message.text = pending.message.command
+          ? (pending.message.text ? pending.message.text + "\n\n" : "") + "*Stopped.*"
+          : (pending.message.text ? pending.message.text + "\n\n" : "") + "*Stopped.*";
+      }
       finishReply();
     }
   });
@@ -322,6 +405,7 @@ function autoResize() {
   els.prompt.style.height = "auto";
   els.prompt.style.height = els.prompt.scrollHeight + "px";
   renderComposer();
+  renderCommandMenu();
 }
 
 /* Events */
@@ -349,7 +433,8 @@ els.composer.addEventListener("submit", (e) => {
   if (!text) return;
   els.prompt.value = "";
   autoResize();
-  sendMessage(text);
+  if (text.startsWith("/")) runCommand(text);
+  else sendMessage(text);
 });
 
 for (const picker of pickers) {
@@ -366,8 +451,13 @@ document.addEventListener("click", (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") pickers.forEach((p) => setPickerOpen(p, false));
+  if (e.key === "Escape") {
+    pickers.forEach((p) => setPickerOpen(p, false));
+    els.commandMenu.hidden = true;
+  }
 });
 
 render();
 els.prompt.focus();
+// Load the selected model in the background so the first reply is quick.
+if (host) host.postMessage({ type: "preload", model: currentModel().id });

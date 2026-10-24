@@ -192,8 +192,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 18px;
   background: var(--user-bubble);
 }
-.msg.assistant { display: flex; gap: 12px; }
-.msg.assistant img { width: 24px; height: 24px; flex-shrink: 0; margin-top: 2px; }
+.msg.assistant { display: flex; }
 .msg.assistant .meta { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
 
 /* Composer */
@@ -207,6 +206,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--surface);
   box-shadow: var(--shadow);
 }
+.composer { position: relative; }
+.command-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+.command-menu .option-name { font-family: Consolas, monospace; }
 .composer textarea {
   width: 100%;
   max-height: 220px;
@@ -294,7 +307,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .md pre code { padding: 0; background: none; }
 .md > :last-child { margin-bottom: 0; }
 .msg.error .md { color: #c2410c; }
-.typing::after { content: "▍"; animation: blink 1s steps(1) infinite; }
+.typing:empty::after, .typing > p:last-child::after { content: "▍"; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
 .disclaimer { margin-top: 8px; text-align: center; font-size: 12px; color: var(--muted); }

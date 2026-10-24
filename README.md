@@ -17,10 +17,22 @@ In PowerShell, from the repository folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\install-brain.ps1
 ```
 
-`install.ps1` builds `dist\Therennai.exe` and puts a **Therennai** shortcut on your desktop. `install-brain.ps1` installs the local model engine and creates the Therennai 1.0 model. Until it has run, Therennai tells you its brain isn't installed yet.
+This builds `dist\Therennai.exe` and puts a **Therennai** shortcut on your desktop.
+
+Then open Therennai and type **/install model 1.0** in the chat. Therennai shows a checklist of the install steps and a log of the commands it runs. The first install also sets up the local model engine in the background. You can also install from PowerShell with `install-brain.ps1`.
+
+## Commands
+
+Type `/` in the message box to see them.
+
+| Command | What it does |
+|---|---|
+| `/install model <version>` | Installs one model, e.g. `/install model 1.0` |
+| `/install model all` | Installs every model |
+| `/uninstall model <version>` | Removes one model and frees its disk space, e.g. `/uninstall model 1.0` |
+| `/uninstall model all` | Removes every model |
 
 Chats are saved on your machine in `%LOCALAPPDATA%\Therennai`. Nothing is sent over the internet.
 
@@ -33,7 +45,9 @@ The shield button next to the model picker sets what Therennai may do on your PC
 | Path | Purpose |
 |---|---|
 | `src/Therennai/MainForm.cs` | The native window; passes chats between the interface and the model |
-| `src/Therennai/ModelEngine.cs` | Starts the local model engine when needed and streams replies |
+| `src/Therennai/ModelEngine.cs` | Starts the local model engine when needed, preloads the model and streams replies |
+| `src/Therennai/ModelInstaller.cs` | The `/install` command: install steps and progress |
+| `models/<version>/model.json` | A model's name, version and disk size, used by `/install` |
 | `ui/` | Interface: layout, styling, chats, permission and model lists (`PERMISSIONS`, `MODELS` in `app.js`) |
 | `models/therennai-1.0/system.txt` | Therennai 1.0's instructions: personality and how it behaves |
 | `models/therennai-1.0/Modelfile` | Therennai 1.0's base model and generation settings |

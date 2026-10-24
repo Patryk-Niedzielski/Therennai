@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
@@ -75,7 +74,7 @@ internal sealed class MainForm : Form
         webView.Source = new Uri($"https://{UiHost}/index.html");
     }
 
-    /// <summary>Handles "chat" and "stop" requests from the interface.</summary>
+    /// <summary>Handles "chat", "install", "uninstall", "preload" and "stop" requests from the interface.</summary>
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         JsonNode? request = JsonNode.Parse(e.WebMessageAsJson);
@@ -86,11 +85,15 @@ internal sealed class MainForm : Form
             activeReply?.Cancel();
             return;
         }
-        if (type != "chat" || request is null) return;
+        if (type == "preload" && request?["model"]?.GetValue<string>() is { } preloadModel)
+        {
+            await engine.PreloadAsync(preloadModel);
+            return;
+        }
+        if (request is null || type is not ("chat" or "install" or "uninstall")) return;
 
         string requestId = request["requestId"]!.GetValue<string>();
         string model = request["model"]!.GetValue<string>();
-        string permission = request["permission"]?.GetValue<string>() ?? "chat";
 
         activeReply?.Cancel();
         using var cts = new CancellationTokenSource();
@@ -98,26 +101,48 @@ internal sealed class MainForm : Form
 
         try
         {
-            var messages = new JsonArray
+            if (type is "install" or "uninstall")
             {
-                new JsonObject { ["role"] = "system", ["content"] = BuildSystemPrompt(model, permission) },
-            };
-            foreach (JsonNode? message in request["messages"]!.AsArray())
-                messages.Add(message!.DeepClone());
+                await new ModelInstaller(engine).RunAsync(type, model,
+                    text => Post(new JsonObject { ["type"] = "status", ["requestId"] = requestId, ["text"] = text }),
+                    cts.Token);
+            }
+            else
+            {
+                string permission = request["permission"]?.GetValue<string>() ?? "chat";
+                var messages = new JsonArray
+                {
+                    new JsonObject { ["role"] = "system", ["content"] = BuildSystemPrompt(model, permission) },
+                };
+                foreach (JsonNode? message in request["messages"]!.AsArray())
+                    messages.Add(message!.DeepClone());
 
-            await engine.ChatAsync(model, messages,
-                text => Post(new JsonObject { ["type"] = "chunk", ["requestId"] = requestId, ["text"] = text }),
-                cts.Token);
+                await engine.ChatAsync(model, messages,
+                    text => Post(new JsonObject { ["type"] = "chunk", ["requestId"] = requestId, ["text"] = text }),
+                    cts.Token);
+            }
             Post(new JsonObject { ["type"] = "done", ["requestId"] = requestId });
         }
         catch (OperationCanceledException)
         {
-            Post(new JsonObject { ["type"] = "done", ["requestId"] = requestId });
+            Post(new JsonObject { ["type"] = "done", ["requestId"] = requestId, ["stopped"] = true });
         }
-        catch (Exception ex) when (ex is EngineException or HttpRequestException or IOException)
+        catch (Exception ex) when (ex is EngineException or HttpRequestException or IOException
+                                       or System.ComponentModel.Win32Exception)
         {
-            string message = ex is EngineException ? ex.Message : "Lost the connection to Therennai's brain.";
-            Post(new JsonObject { ["type"] = "error", ["requestId"] = requestId, ["message"] = message });
+            string message = ex switch
+            {
+                EngineException => ex.Message,
+                System.ComponentModel.Win32Exception => "Couldn't start the installer.",
+                _ => "Lost the connection to Therennai's brain.",
+            };
+            Post(new JsonObject
+            {
+                ["type"] = "error",
+                ["requestId"] = requestId,
+                ["message"] = message,
+                ["code"] = (ex as EngineException)?.Code,
+            });
         }
         finally
         {
@@ -134,8 +159,7 @@ internal sealed class MainForm : Form
     /// <summary>The model's system prompt from models/&lt;model&gt;/system.txt plus the current permission mode.</summary>
     private static string BuildSystemPrompt(string model, string permission)
     {
-        string folder = Regex.Replace(model, "[^a-z0-9.]", "-");
-        string path = Path.Combine(AppContext.BaseDirectory, "models", folder, "system.txt");
+        string path = Path.Combine(ModelInstaller.ModelFolder(model), "system.txt");
         string prompt = File.Exists(path) ? File.ReadAllText(path) : "You are Therennai, a helpful AI agent.";
 
         string access = permission == "chat"
