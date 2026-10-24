@@ -1,5 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#5b6cf0"/>
-  <path d="M18 20h28M32 20v26" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="45" cy="44" r="4" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7B6CFF"/>
+      <stop offset="0.5" stop-color="#5146E5"/>
+      <stop offset="1" stop-color="#2A1D8C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.28" cy="0.18" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#bg)"/>
+  <rect width="256" height="256" rx="58" fill="url(#glow)"/>
+  <!-- T with a horizon-curved top bar -->
+  <path d="M62 100 Q128 64 194 100" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round"/>
+  <path d="M128 84 V198" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round"/>
+  <!-- Spark -->
+  <path d="M190 146 C194 166 198 170 218 174 C198 178 194 182 190 202 C186 182 182 178 162 174 C182 170 186 166 190 146 Z" fill="#fff"/>
 </svg>
