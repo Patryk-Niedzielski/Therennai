@@ -67,7 +67,7 @@ The shield button next to the model picker sets what Therennai may do on your PC
 
 | Path | Purpose |
 |---|---|
-| `src/Therennai/MainForm.cs` | The native window; passes chats between the interface and the model |
+| `src/Therennai/MainForm.cs` | The native window (rounded corners, custom title bar); passes chats between the interface and the model |
 | `src/Therennai/ModelEngine.cs` | Starts the local model engine when needed, preloads the model and streams replies |
 | `src/Therennai/ModelInstaller.cs` | The `/install` command: install steps and progress |
 | `models/<version>/model.json` | A model's name, version and disk size, used by `/install` |

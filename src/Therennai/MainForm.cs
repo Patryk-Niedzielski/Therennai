@@ -43,7 +43,102 @@ internal sealed class MainForm : Form
     {
         base.OnHandleCreated(e);
         ApplyTheme(themeMode);
+        // Recalculate the frame so the custom title bar (WM_NCCALCSIZE below) takes effect right away.
+        SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoZOrder | SwpFrameChanged);
+        UpdateCorners();
     }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (!IsHandleCreated) return;
+        UpdateCorners();
+        Post(new JsonObject { ["type"] = "window-state", ["maximized"] = WindowState == FormWindowState.Maximized });
+    }
+
+    /// <summary>
+    /// Removes the standard Windows title bar: the interface draws its own (ui/index.html), like other chat apps.
+    /// The window keeps its resizable frame style, so snapping, maximizing and the taskbar behave normally.
+    /// </summary>
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmNcCalcSize && m.WParam != IntPtr.Zero)
+        {
+            // A maximized window hangs over the screen edges by the frame size; pull the client area back in.
+            if (IsZoomed(Handle))
+            {
+                int dpi = (int)GetDpiForWindow(Handle);
+                int padding = GetSystemMetricsForDpi(SmCxPaddedBorder, dpi);
+                int frameX = GetSystemMetricsForDpi(SmCxFrame, dpi) + padding;
+                int frameY = GetSystemMetricsForDpi(SmCyFrame, dpi) + padding;
+                var rect = Marshal.PtrToStructure<Rect>(m.LParam);
+                rect.Left += frameX;
+                rect.Top += frameY;
+                rect.Right -= frameX;
+                rect.Bottom -= frameY;
+                Marshal.StructureToPtr(rect, m.LParam, false);
+            }
+            m.Result = IntPtr.Zero;
+            return;
+        }
+        if (m.Msg == WmNcActivate)
+        {
+            // Stop Windows from repainting the (hidden) title bar when the window gains or loses focus.
+            m.Result = DefWindowProc(m.HWnd, m.Msg, m.WParam, new IntPtr(-1));
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
+    /// <summary>Rounds the window corners: the system's smooth rounding on Windows 11, a window region on Windows 10.</summary>
+    private void UpdateCorners()
+    {
+        if (Environment.OSVersion.Version.Build >= 22000)
+        {
+            int round = DwmcpRound;
+            DwmSetWindowAttribute(Handle, DwmWindowCornerPreference, ref round, sizeof(int));
+            return;
+        }
+        if (WindowState == FormWindowState.Maximized)
+        {
+            SetWindowRgn(Handle, IntPtr.Zero, true);
+            return;
+        }
+        int diameter = (int)Math.Round(CornerRadius * 2 * DeviceDpi / 96.0);
+        // The window owns the region after SetWindowRgn, so it isn't deleted here.
+        SetWindowRgn(Handle, CreateRoundRectRgn(0, 0, Width + 1, Height + 1, diameter, diameter), true);
+    }
+
+    /// <summary>Title bar actions from the interface: moving, resizing, minimizing, maximizing and closing.</summary>
+    private void HandleWindowAction(string? action, string? edge)
+    {
+        switch (action)
+        {
+            case "drag":
+                ReleaseCapture();
+                SendMessage(Handle, WmNcLButtonDown, HtCaption, IntPtr.Zero);
+                break;
+            case "resize" when WindowState == FormWindowState.Normal && edge is not null && ResizeEdges.TryGetValue(edge, out int hit):
+                ReleaseCapture();
+                SendMessage(Handle, WmNcLButtonDown, hit, IntPtr.Zero);
+                break;
+            case "minimize":
+                WindowState = FormWindowState.Minimized;
+                break;
+            case "toggle-maximize":
+                WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+                break;
+            case "close":
+                Close();
+                break;
+        }
+    }
+
+    private static readonly Dictionary<string, int> ResizeEdges = new()
+    {
+        ["left"] = 10, ["right"] = 11, ["top"] = 12, ["top-left"] = 13,
+        ["top-right"] = 14, ["bottom"] = 15, ["bottom-left"] = 16, ["bottom-right"] = 17,
+    };
 
     private async Task InitializeWebViewAsync()
     {
@@ -99,6 +194,9 @@ internal sealed class MainForm : Form
                 break;
             case "exit":
                 Close();
+                break;
+            case "window":
+                HandleWindowAction(request["action"]?.GetValue<string>(), request["edge"]?.GetValue<string>());
                 break;
             case "report-bug":
                 Process.Start(new ProcessStartInfo(IssuesUrl) { UseShellExecute = true })?.Dispose();
@@ -294,7 +392,7 @@ internal sealed class MainForm : Form
         return new DriveInfo(root).AvailableFreeSpace / 1e9;
     }
 
-    /// <summary>Applies "light", "dark" or "system" to the window background and title bar.</summary>
+    /// <summary>Applies "light", "dark" or "system" to the window background (shown while the interface loads).</summary>
     private void ApplyTheme(string mode)
     {
         themeMode = mode;
@@ -302,14 +400,9 @@ internal sealed class MainForm : Form
         BackColor = dark ? Color.FromArgb(30, 30, 28) : Color.FromArgb(247, 247, 245);
         if (!IsHandleCreated) return;
 
+        // Also used by Windows for the window's system menu and snap previews.
         int value = dark ? 1 : 0;
         DwmSetWindowAttribute(Handle, DwmUseImmersiveDarkMode, ref value, sizeof(int));
-        // Nudge Windows to redraw the title bar with the new colors.
-        if (WindowState == FormWindowState.Normal)
-        {
-            Width += 1;
-            Width -= 1;
-        }
     }
 
     private static bool IsWindowsDarkMode()
@@ -319,8 +412,53 @@ internal sealed class MainForm : Form
         return value is int light && light == 0;
     }
 
+    private const int CornerRadius = 10;
+
     private const int DwmUseImmersiveDarkMode = 20;
+    private const int DwmWindowCornerPreference = 33;
+    private const int DwmcpRound = 2;
+    private const int WmNcCalcSize = 0x0083;
+    private const int WmNcActivate = 0x0086;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int HtCaption = 2;
+    private const int SmCxFrame = 32;
+    private const int SmCyFrame = 33;
+    private const int SmCxPaddedBorder = 92;
+    private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoZOrder = 0x0004, SwpFrameChanged = 0x0020;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left, Top, Right, Bottom;
+    }
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, bool redraw);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsZoomed(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetricsForDpi(int index, int dpi);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DefWindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hwnd, int msg, int wParam, IntPtr lParam);
 }

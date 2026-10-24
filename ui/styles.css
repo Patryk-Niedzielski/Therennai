@@ -174,6 +174,36 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .topbar { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; }
 #openSidebarBtn { display: none; }
+
+/* Window controls (the app draws its own title bar) */
+.topbar { padding-right: 0; user-select: none; }
+.sidebar-top { user-select: none; }
+.window-controls { display: flex; align-self: flex-start; margin-left: auto; }
+.window-btn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.window-btn svg { width: 11px; height: 11px; stroke-width: 1.2; }
+.window-btn:hover { background: var(--hover); color: var(--text); }
+.window-btn.close:hover { background: #c42b1c; color: #fff; }
+.window-btn .icon-restore, body.maximized .window-btn .icon-maximize { display: none; }
+body.maximized .window-btn .icon-restore { display: block; }
+
+.resize-edges > div { position: fixed; z-index: 100; }
+body.maximized .resize-edges { display: none; }
+[data-edge="top"] { top: 0; left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+[data-edge="bottom"] { bottom: 0; left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+[data-edge="left"] { left: 0; top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+[data-edge="right"] { right: 0; top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+[data-edge="top-left"] { top: 0; left: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+[data-edge="bottom-right"] { bottom: 0; right: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+[data-edge="top-right"] { top: 0; right: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+[data-edge="bottom-left"] { bottom: 0; left: 0; width: 10px; height: 10px; cursor: nesw-resize; }
 .shell.collapsed #openSidebarBtn { display: grid; }
 .chat-title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 

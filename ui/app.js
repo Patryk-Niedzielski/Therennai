@@ -895,6 +895,33 @@ function renderPromptHighlight() {
 
 /* Events */
 
+/* Title bar: the window has no standard frame, so moving, resizing and the window buttons go through the host */
+
+const isInteractive = (el) => el.closest("button, input, textarea, a, [data-no-drag]");
+for (const area of document.querySelectorAll("[data-drag]")) {
+  area.addEventListener("mousedown", (e) => {
+    if (e.button === 0 && e.detail === 1 && !isInteractive(e.target)) notifyHost("window", { action: "drag" });
+  });
+  area.addEventListener("dblclick", (e) => {
+    if (!isInteractive(e.target)) notifyHost("window", { action: "toggle-maximize" });
+  });
+}
+for (const edge of document.querySelectorAll("[data-edge]")) {
+  edge.addEventListener("mousedown", (e) => {
+    if (e.button === 0) notifyHost("window", { action: "resize", edge: edge.dataset.edge });
+  });
+}
+for (const button of document.querySelectorAll("[data-window]")) {
+  button.onclick = () => notifyHost("window", { action: button.dataset.window });
+}
+if (host) {
+  host.addEventListener("message", (e) => {
+    if (e.data.type !== "window-state") return;
+    document.body.classList.toggle("maximized", e.data.maximized);
+    $("maximizeBtn").title = e.data.maximized ? "Restore" : "Maximize";
+  });
+}
+
 $("newChatBtn").onclick = newChat;
 els.contextBtn.onclick = () => {
   if (buildHistory(activeChat()).length) runCommand("/context");

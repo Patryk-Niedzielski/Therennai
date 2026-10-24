@@ -10,7 +10,7 @@
 <body>
   <div class="shell">
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-top">
+      <div class="sidebar-top" data-drag>
         <div class="brand">
           <img src="icon.svg" alt="" class="brand-mark">
           <span>Therennai</span>
@@ -43,11 +43,24 @@
     </aside>
 
     <main class="main">
-      <header class="topbar">
+      <!-- Also the window's title bar: drag to move, double-click to maximize -->
+      <header class="topbar" data-drag>
         <button class="icon-btn" id="openSidebarBtn" title="Open sidebar" aria-label="Open sidebar">
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
         </button>
         <div class="chat-title" id="chatTitle">New chat</div>
+        <div class="window-controls">
+          <button class="window-btn" data-window="minimize" title="Minimize" aria-label="Minimize">
+            <svg viewBox="0 0 12 12"><path d="M1.5 6h9"/></svg>
+          </button>
+          <button class="window-btn" data-window="toggle-maximize" id="maximizeBtn" title="Maximize" aria-label="Maximize">
+            <svg viewBox="0 0 12 12" class="icon-maximize"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/></svg>
+            <svg viewBox="0 0 12 12" class="icon-restore"><rect x="1.5" y="3.5" width="7" height="7" rx="1.2"/><path d="M3.5 3.5V2.7c0-.7.5-1.2 1.2-1.2h4.6c.7 0 1.2.5 1.2 1.2v4.6c0 .7-.5 1.2-1.2 1.2h-.8"/></svg>
+          </button>
+          <button class="window-btn close" data-window="close" title="Close" aria-label="Close">
+            <svg viewBox="0 0 12 12"><path d="m2 2 8 8M10 2l-8 8"/></svg>
+          </button>
+        </div>
       </header>
 
       <section class="conversation" id="conversation">
@@ -112,6 +125,11 @@
   </div>
 
   <div class="toast" id="toast" role="status"></div>
+  <!-- Invisible window edges for resizing (the window has no standard frame) -->
+  <div class="resize-edges" aria-hidden="true">
+    <div data-edge="top"></div><div data-edge="bottom"></div><div data-edge="left"></div><div data-edge="right"></div>
+    <div data-edge="top-left"></div><div data-edge="top-right"></div><div data-edge="bottom-left"></div><div data-edge="bottom-right"></div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>
