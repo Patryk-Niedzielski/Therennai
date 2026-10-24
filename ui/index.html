@@ -168,6 +168,29 @@
     </div>
   </div>
 
+  <!-- Update screen -->
+  <div class="modal-backdrop" id="updateModal" hidden>
+    <div class="modal modal-small update" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+      <div class="update-hero">
+        <img src="icon.svg" alt="" class="update-mark">
+        <h2 id="updateTitle">A new version of Therennai is available</h2>
+        <p class="update-versions" id="updateVersions"></p>
+      </div>
+      <div class="modal-body">
+        <div class="md update-notes" id="updateNotes"></div>
+        <p class="update-keep">Your chats, memory, settings and models are kept.</p>
+        <div class="update-progress" id="updateProgress" hidden>
+          <div class="meter"><span id="updateBar"></span></div>
+          <div class="update-status" id="updateStatus"></div>
+        </div>
+      </div>
+      <footer class="modal-actions" id="updateActions">
+        <button type="button" class="btn" id="updateLaterBtn">Later</button>
+        <button type="button" class="btn primary" id="updateNowBtn">Update now</button>
+      </footer>
+    </div>
+  </div>
+
   <!-- Small message window (update results) -->
   <div class="modal-backdrop" id="dialogModal" hidden>
     <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">

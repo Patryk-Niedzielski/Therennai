@@ -213,6 +213,9 @@ internal sealed class MainForm : Form
             case "check-update":
                 PostResult(requestId!, await CheckForUpdatesAsync());
                 break;
+            case "install-update" when request["url"]?.GetValue<string>() is { } updateUrl && Updater.IsTrustedDownload(updateUrl):
+                await InstallUpdateAsync(updateUrl, request["sha256"]?.GetValue<string>());
+                break;
             case "status":
                 PostResult(requestId!, await GetStatusAsync());
                 break;
@@ -384,6 +387,12 @@ internal sealed class MainForm : Form
                 && Version.TryParse(current, out Version? currentVersion)
                 && latestVersion > currentVersion;
             string notes = release["body"]?.GetValue<string>() ?? "";
+
+            // The package the updater installs, with GitHub's SHA-256 checksum when it provides one.
+            JsonNode? asset = release["assets"]?.AsArray()
+                .FirstOrDefault(a => a?["name"]?.GetValue<string>() == Updater.AssetName);
+            string? digest = asset?["digest"]?.GetValue<string>();
+
             return new JsonObject
             {
                 ["current"] = current,
@@ -391,11 +400,40 @@ internal sealed class MainForm : Form
                 ["upToDate"] = !newer,
                 ["url"] = release["html_url"]?.GetValue<string>(),
                 ["notes"] = notes.Length > 800 ? notes[..800] + "…" : notes,
+                ["downloadUrl"] = asset?["browser_download_url"]?.GetValue<string>(),
+                ["sizeMB"] = asset is null ? null : Math.Round((asset["size"]?.GetValue<long>() ?? 0) / 1e6, 1),
+                ["sha256"] = digest is not null && digest.StartsWith("sha256:") ? digest[7..] : null,
             };
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
             return new JsonObject { ["current"] = current, ["error"] = "Couldn't reach GitHub. Check your internet connection and try again." };
+        }
+    }
+
+    /// <summary>Downloads the new version, then closes so the updater can swap the files and reopen Therennai.</summary>
+    private async Task InstallUpdateAsync(string url, string? sha256)
+    {
+        void Progress(string stage, int percent = -1, string? message = null) => Post(new JsonObject
+        {
+            ["type"] = "update-progress", ["stage"] = stage, ["percent"] = percent, ["message"] = message,
+        });
+
+        try
+        {
+            activeReply?.Cancel();
+            Progress("downloading", 0);
+            string staging = await Updater.DownloadAsync(url, sha256, percent => Progress("downloading", percent),
+                CancellationToken.None);
+            Progress("installing");
+            Updater.ScheduleInstall(staging);
+            await Task.Delay(1200);
+            Close();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException
+                                       or TaskCanceledException or System.ComponentModel.Win32Exception)
+        {
+            Progress("error", message: ex is IOException ? ex.Message : "The update couldn't be downloaded. Check your internet connection and try again.");
         }
     }
 

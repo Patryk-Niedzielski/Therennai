@@ -21,6 +21,8 @@
   <ItemGroup>
     <Content Include="..\..\ui\**\*" LinkBase="ui" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\models\**\*" LinkBase="models" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Desktop shortcut icon; the updater points the shortcut at it after an update. -->
+    <Content Include="..\..\assets\icon.ico" Link="icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

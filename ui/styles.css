@@ -238,6 +238,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { color: #dc2626; }
+/* Update screen */
+.update-hero { padding: 26px 24px 6px; text-align: center; }
+.update-mark { width: 56px; height: 56px; }
+.update-hero h2 { margin: 12px 0 4px; font-size: 18px; font-weight: 600; }
+.update-versions { margin: 0; color: var(--muted); }
+.update-notes { max-height: 180px; overflow-y: auto; margin-top: 6px; font-size: 13.5px; }
+.update-notes:empty { display: none; }
+.update-keep { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); }
+.update-progress .meter { margin: 14px 0 6px; }
+.update-progress .meter span { width: 0; transition: width .2s ease; }
+.update-status { font-size: 12.5px; color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: default; }
+
 .link-btn { padding: 0; border: 0; background: none; color: var(--accent); }
 .link-btn:hover { text-decoration: underline; }
 

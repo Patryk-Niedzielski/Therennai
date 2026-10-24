@@ -1048,36 +1048,93 @@ function showDialog(title, markdown, actions = [{ label: "OK", primary: true }])
   openModal(dialogModal);
 }
 
-/* Updates: compares this version with the latest release on GitHub */
+/* Updates: compares this version with the latest release on GitHub and installs it in place */
 
+const updateModal = $("updateModal");
 let checkingForUpdates = false;
-async function checkForUpdates() {
-  if (checkingForUpdates) return;
+let installingUpdate = false;
+
+// quiet: the automatic check at startup only speaks up when there's an update.
+async function checkForUpdates({ quiet = false } = {}) {
+  if (checkingForUpdates || installingUpdate) return;
   checkingForUpdates = true;
   $("updateBtn").classList.add("checking");
   try {
     const result = await callHost("check-update");
     if (result.error) {
-      showDialog("Couldn't check for updates", result.error);
-    } else if (result.upToDate) {
+      if (!quiet) showDialog("Couldn't check for updates", result.error);
+    } else if (!result.upToDate) {
+      showUpdateScreen(result);
+    } else if (!quiet) {
       showToast(`Therennai is up to date (version ${result.current})`, 4000);
-    } else {
-      showDialog(`Therennai ${result.latest} is available`,
-        `You have version ${result.current}.` + (result.notes ? `\n\n**What's new**\n\n${result.notes}` : ""),
-        [
-          { label: "Later" },
-          { label: "Download", primary: true, run: () => notifyHost("open-link", { url: result.url }) },
-        ]);
     }
   } catch (err) {
-    showToast(err.message);
+    if (!quiet) showToast(err.message);
   } finally {
     checkingForUpdates = false;
     $("updateBtn").classList.remove("checking");
   }
 }
-$("updateBtn").onclick = checkForUpdates;
-$("aboutUpdateBtn").onclick = checkForUpdates;
+
+function showUpdateScreen(release) {
+  closeModal(settingsModal);
+  $("updateVersions").textContent = `Version ${release.latest} · you have ${release.current}` +
+    (release.sizeMB ? ` · ${release.sizeMB} MB` : "");
+  $("updateNotes").innerHTML = release.notes ? renderMarkdown(release.notes) : "";
+  $("updateProgress").hidden = true;
+  $("updateLaterBtn").disabled = false;
+  const now = $("updateNowBtn");
+  now.disabled = false;
+  if (release.downloadUrl) {
+    now.textContent = "Update now";
+    now.onclick = () => installUpdate(release);
+  } else {
+    // A release without the installable package: send the user to its page instead.
+    now.textContent = "Open download page";
+    now.onclick = () => { notifyHost("open-link", { url: release.url }); closeModal(updateModal); };
+  }
+  openModal(updateModal);
+}
+
+function installUpdate(release) {
+  installingUpdate = true;
+  if (pending) stopReply();
+  $("updateNowBtn").disabled = true;
+  $("updateLaterBtn").disabled = true;
+  $("updateProgress").hidden = false;
+  setUpdateProgress(0, "Downloading…");
+  notifyHost("install-update", { url: release.downloadUrl, sha256: release.sha256 });
+}
+
+function setUpdateProgress(percent, status) {
+  if (percent >= 0) $("updateBar").style.width = percent + "%";
+  $("updateStatus").textContent = status;
+}
+
+if (host) {
+  host.addEventListener("message", (e) => {
+    const data = e.data;
+    if (data.type !== "update-progress") return;
+    if (data.stage === "downloading") {
+      setUpdateProgress(data.percent, data.percent >= 0 ? `Downloading… ${data.percent}%` : "Downloading…");
+    } else if (data.stage === "installing") {
+      setUpdateProgress(100, "Installing. Therennai will restart in a moment…");
+    } else if (data.stage === "error") {
+      installingUpdate = false;
+      setUpdateProgress(0, data.message);
+      $("updateNowBtn").disabled = false;
+      $("updateLaterBtn").disabled = false;
+      $("updateNowBtn").textContent = "Try again";
+    }
+  });
+}
+
+$("updateLaterBtn").onclick = () => closeModal(updateModal);
+updateModal.addEventListener("mousedown", (e) => { if (e.target === updateModal && !installingUpdate) closeModal(updateModal); });
+$("updateBtn").onclick = () => checkForUpdates();
+$("aboutUpdateBtn").onclick = () => checkForUpdates();
+// Check quietly a few seconds after opening, like other desktop apps.
+setTimeout(() => checkForUpdates({ quiet: true }), 4000);
 
 $("newChatBtn").onclick = newChat;
 els.contextBtn.onclick = () => {
@@ -1152,7 +1209,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     pickers.forEach((p) => setPickerOpen(p, false));
     els.commandMenu.hidden = true;
-    closeModal(dialogModal.hidden ? settingsModal : dialogModal);
+    if (!updateModal.hidden && !installingUpdate) closeModal(updateModal);
+    else closeModal(dialogModal.hidden ? settingsModal : dialogModal);
   }
 });
 
