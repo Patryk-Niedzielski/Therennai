@@ -35,6 +35,7 @@ const els = {
   prompt: $("prompt"),
   send: $("sendBtn"),
   commandMenu: $("commandMenu"),
+  promptHighlight: $("promptHighlight"),
 };
 
 let state = loadState();
@@ -64,6 +65,13 @@ const currentPermission = () => PERMISSIONS.find((p) => p.id === state.permissio
 
 function escapeHtml(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Wraps the command word in a highlight when the text starts with "/" (e.g. "/install model 1.0").
+function highlightCommand(text) {
+  const match = text.match(/^\/\S*/);
+  if (!match) return escapeHtml(text);
+  return `<span class="cmd-word">${escapeHtml(match[0])}</span>${escapeHtml(text.slice(match[0].length))}`;
 }
 
 function renderInline(text) {
@@ -151,7 +159,7 @@ function renderConversation() {
     const row = document.createElement("div");
     row.className = "msg " + msg.role + (msg.error ? " error" : "");
     if (msg.role === "user") {
-      row.textContent = msg.text;
+      row.innerHTML = highlightCommand(msg.text);
     } else {
       const body = document.createElement("div");
       body.className = "body";
@@ -404,8 +412,15 @@ if (host) {
 function autoResize() {
   els.prompt.style.height = "auto";
   els.prompt.style.height = els.prompt.scrollHeight + "px";
+  renderPromptHighlight();
   renderComposer();
   renderCommandMenu();
+}
+
+function renderPromptHighlight() {
+  // The trailing space keeps a final empty line the same height as in the textarea.
+  els.promptHighlight.innerHTML = highlightCommand(els.prompt.value) + " ";
+  els.promptHighlight.scrollTop = els.prompt.scrollTop;
 }
 
 /* Events */
@@ -416,6 +431,7 @@ $("openSidebarBtn").onclick = () => { state.sidebarCollapsed = false; saveState(
 els.search.oninput = renderChatList;
 
 els.prompt.addEventListener("input", autoResize);
+els.prompt.addEventListener("scroll", () => { els.promptHighlight.scrollTop = els.prompt.scrollTop; });
 els.prompt.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
