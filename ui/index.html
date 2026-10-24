@@ -34,11 +34,12 @@
       <nav class="chat-list" id="chatList"></nav>
 
       <div class="sidebar-bottom">
-        <div class="avatar">U</div>
-        <div class="user-meta">
-          <div class="user-name">Local user</div>
-          <div class="user-plan">Runs on this PC</div>
-        </div>
+        <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button class="icon-btn" id="updateBtn" title="Check for updates" aria-label="Check for updates">
+          <svg viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
       </div>
     </aside>
 
@@ -122,6 +123,63 @@
         <div class="disclaimer">Therennai can make mistakes. Actions on your PC arrive in a later version.</div>
       </footer>
     </main>
+  </div>
+
+  <!-- Settings -->
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <header class="modal-header">
+        <h2 id="settingsTitle">Settings</h2>
+        <button class="icon-btn" data-close-modal title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+      <div class="modal-body">
+        <section class="setting">
+          <div class="setting-label">Theme</div>
+          <div class="segmented" id="themeSetting"></div>
+        </section>
+        <section class="setting">
+          <div class="setting-label">Model</div>
+          <select id="modelSetting"></select>
+        </section>
+        <section class="setting">
+          <div class="setting-label">Permissions</div>
+          <select id="permissionSetting"></select>
+        </section>
+        <section class="setting setting-block">
+          <div class="setting-label">Memory</div>
+          <p class="setting-help">Therennai remembers these in every chat.</p>
+          <ul class="memory-list" id="memoryList"></ul>
+          <form class="memory-add" id="memoryForm">
+            <input id="memoryInput" type="text" placeholder="Something Therennai should remember">
+            <button type="submit" class="btn">Add</button>
+          </form>
+        </section>
+        <section class="setting">
+          <div class="setting-label">Chats</div>
+          <button class="btn danger" id="deleteChatsBtn">Delete all chats</button>
+        </section>
+        <section class="setting">
+          <div class="setting-label">About</div>
+          <div class="setting-value"><span id="aboutVersion">Therennai</span> · <button class="link-btn" id="aboutUpdateBtn">Check for updates</button></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Small message window (update results) -->
+  <div class="modal-backdrop" id="dialogModal" hidden>
+    <div class="modal modal-small" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <header class="modal-header">
+        <h2 id="dialogTitle"></h2>
+        <button class="icon-btn" data-close-modal title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+      <div class="modal-body md" id="dialogBody"></div>
+      <footer class="modal-actions" id="dialogActions"></footer>
+    </div>
   </div>
 
   <div class="toast" id="toast" role="status"></div>

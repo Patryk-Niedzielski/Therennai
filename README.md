@@ -53,7 +53,7 @@ Type `/` in the message box to see them. Use the arrow keys and Tab or Enter to 
 
 Commands for coding agents, such as `/init`, `/review`, `/diff`, `/mcp` and `/agents`, will come once Therennai can act on your PC.
 
-Chats are saved on your machine in `%LOCALAPPDATA%\Therennai`. Nothing is sent over the internet.
+Chats are saved on your machine in `%LOCALAPPDATA%\Therennai` and never leave it. Therennai only goes online to download a model (`/install`) and when you click **Check for updates** (the circular arrows at the bottom of the sidebar), which reads the latest release from this repository on GitHub. The gear next to it opens **Settings**: theme, model, permissions, memory and deleting chats.
 
 ## Context
 

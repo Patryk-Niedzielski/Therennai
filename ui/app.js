@@ -264,11 +264,11 @@ function applyTheme() {
 }
 
 let toastTimer = null;
-function showToast(text) {
+function showToast(text, duration = 2200) {
   els.toast.textContent = text;
   els.toast.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), duration);
 }
 
 /* Pickers (permissions and model) */
@@ -922,6 +922,163 @@ if (host) {
   });
 }
 
+/* Settings and message windows */
+
+const settingsModal = $("settingsModal");
+const dialogModal = $("dialogModal");
+
+function openModal(modal) { modal.hidden = false; }
+function closeModal(modal) { modal.hidden = true; }
+
+for (const modal of [settingsModal, dialogModal]) {
+  modal.addEventListener("mousedown", (e) => { if (e.target === modal) closeModal(modal); });
+  modal.querySelector("[data-close-modal]").onclick = () => closeModal(modal);
+}
+
+function fillSelect(select, items, selectedId) {
+  select.replaceChildren(...items.map((item) => new Option(item.name, item.id, false, item.id === selectedId)));
+}
+
+function renderSettings() {
+  const theme = $("themeSetting");
+  theme.replaceChildren();
+  for (const mode of THEMES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = mode[0].toUpperCase() + mode.slice(1);
+    button.setAttribute("aria-pressed", String(state.theme === mode));
+    button.onclick = () => {
+      state.theme = mode;
+      saveState();
+      applyTheme();
+      renderSettings();
+    };
+    theme.append(button);
+  }
+
+  fillSelect($("modelSetting"), MODELS, state.modelId);
+  fillSelect($("permissionSetting"), PERMISSIONS, state.permissionId);
+
+  const list = $("memoryList");
+  list.replaceChildren();
+  if (!state.memory.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty-note";
+    empty.textContent = "Nothing saved yet.";
+    list.append(empty);
+  }
+  state.memory.forEach((note, i) => {
+    const item = document.createElement("li");
+    const text = document.createElement("span");
+    text.textContent = note;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.title = "Forget";
+    remove.setAttribute("aria-label", "Forget");
+    remove.innerHTML = '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+    remove.onclick = () => {
+      state.memory.splice(i, 1);
+      saveState();
+      renderSettings();
+    };
+    item.append(text, remove);
+    list.append(item);
+  });
+}
+
+// The host sends the app version once the page has loaded.
+if (host) {
+  host.addEventListener("message", (e) => {
+    if (e.data.type === "app-info") $("aboutVersion").textContent = `Therennai ${e.data.version}`;
+  });
+}
+
+$("settingsBtn").onclick = () => {
+  renderSettings();
+  openModal(settingsModal);
+};
+$("modelSetting").onchange = (e) => {
+  selectModel(e.target.value);
+  saveState();
+  pickers.forEach(renderPicker);
+  renderComposer();
+};
+$("permissionSetting").onchange = (e) => {
+  state.permissionId = e.target.value;
+  saveState();
+  pickers.forEach(renderPicker);
+};
+$("memoryForm").onsubmit = (e) => {
+  e.preventDefault();
+  const note = $("memoryInput").value.trim();
+  if (!note) return;
+  state.memory.push(note);
+  $("memoryInput").value = "";
+  saveState();
+  renderSettings();
+};
+$("deleteChatsBtn").onclick = () => {
+  if (!state.chats.length) return showToast("There are no chats to delete");
+  if (!confirm(`Delete all ${state.chats.length} chats? This can't be undone.`)) return;
+  if (pending) stopReply();
+  state.chats = [];
+  state.activeId = null;
+  saveState();
+  render();
+  showToast("All chats deleted");
+};
+
+function showDialog(title, markdown, actions = [{ label: "OK", primary: true }]) {
+  $("dialogTitle").textContent = title;
+  $("dialogBody").innerHTML = renderMarkdown(markdown);
+  const bar = $("dialogActions");
+  bar.replaceChildren();
+  for (const action of actions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn" + (action.primary ? " primary" : "");
+    button.textContent = action.label;
+    button.onclick = () => {
+      closeModal(dialogModal);
+      if (action.run) action.run();
+    };
+    bar.append(button);
+  }
+  openModal(dialogModal);
+}
+
+/* Updates: compares this version with the latest release on GitHub */
+
+let checkingForUpdates = false;
+async function checkForUpdates() {
+  if (checkingForUpdates) return;
+  checkingForUpdates = true;
+  $("updateBtn").classList.add("checking");
+  try {
+    const result = await callHost("check-update");
+    if (result.error) {
+      showDialog("Couldn't check for updates", result.error);
+    } else if (result.upToDate) {
+      showToast(`Therennai is up to date (version ${result.current})`, 4000);
+    } else {
+      showDialog(`Therennai ${result.latest} is available`,
+        `You have version ${result.current}.` + (result.notes ? `\n\n**What's new**\n\n${result.notes}` : ""),
+        [
+          { label: "Later" },
+          { label: "Download", primary: true, run: () => notifyHost("open-link", { url: result.url }) },
+        ]);
+    }
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    checkingForUpdates = false;
+    $("updateBtn").classList.remove("checking");
+  }
+}
+$("updateBtn").onclick = checkForUpdates;
+$("aboutUpdateBtn").onclick = checkForUpdates;
+
 $("newChatBtn").onclick = newChat;
 els.contextBtn.onclick = () => {
   if (buildHistory(activeChat()).length) runCommand("/context");
@@ -995,6 +1152,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     pickers.forEach((p) => setPickerOpen(p, false));
     els.commandMenu.hidden = true;
+    closeModal(dialogModal.hidden ? settingsModal : dialogModal);
   }
 });
 

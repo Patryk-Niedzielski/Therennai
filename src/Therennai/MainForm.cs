@@ -13,8 +13,12 @@ internal sealed class MainForm : Form
     // Virtual host the ui folder is served from, so the page gets a stable origin for saved chats.
     private const string UiHost = "therennai.app";
 
-    // Where /bug and /feedback send the user.
-    private const string IssuesUrl = "https://github.com/Patryk-Niedzielski/Therennai/issues/new";
+    // Therennai's GitHub repository: /bug opens a new issue there, and update checks read its latest release.
+    private const string RepoUrl = "https://github.com/Patryk-Niedzielski/Therennai";
+    private const string IssuesUrl = RepoUrl + "/issues/new";
+    private const string LatestReleaseApi = "https://api.github.com/repos/Patryk-Niedzielski/Therennai/releases/latest";
+
+    private static readonly HttpClient Web = CreateWebClient();
 
     private readonly WebView2 webView = new() { Dock = DockStyle.Fill };
     private readonly ModelEngine engine = new();
@@ -167,6 +171,7 @@ internal sealed class MainForm : Form
 #endif
         core.NewWindowRequested += (_, args) => args.Handled = true;
         core.WebMessageReceived += OnWebMessageReceived;
+        core.NavigationCompleted += (_, _) => Post(new JsonObject { ["type"] = "app-info", ["version"] = AppVersion });
 
         core.SetVirtualHostNameToFolderMapping(
             UiHost, Path.Combine(AppContext.BaseDirectory, "ui"), CoreWebView2HostResourceAccessKind.Deny);
@@ -199,7 +204,14 @@ internal sealed class MainForm : Form
                 HandleWindowAction(request["action"]?.GetValue<string>(), request["edge"]?.GetValue<string>());
                 break;
             case "report-bug":
-                Process.Start(new ProcessStartInfo(IssuesUrl) { UseShellExecute = true })?.Dispose();
+                OpenInBrowser(IssuesUrl);
+                break;
+            case "open-link" when request["url"]?.GetValue<string>() is { } url && url.StartsWith(RepoUrl + "/"):
+                // Only links into Therennai's own repository (release pages from the update check).
+                OpenInBrowser(url);
+                break;
+            case "check-update":
+                PostResult(requestId!, await CheckForUpdatesAsync());
                 break;
             case "status":
                 PostResult(requestId!, await GetStatusAsync());
@@ -354,6 +366,50 @@ internal sealed class MainForm : Form
         File.WriteAllText(dialog.FileName, markdown);
         return new JsonObject { ["path"] = dialog.FileName };
     }
+
+    /// <summary>Compares this version with the latest release published on GitHub.</summary>
+    private static async Task<JsonObject> CheckForUpdatesAsync()
+    {
+        string current = AppVersion;
+        try
+        {
+            using var response = await Web.GetAsync(LatestReleaseApi);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return new JsonObject { ["current"] = current, ["upToDate"] = true };
+            response.EnsureSuccessStatusCode();
+
+            JsonNode release = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+            string latest = release["tag_name"]!.GetValue<string>().TrimStart('v', 'V');
+            bool newer = Version.TryParse(latest, out Version? latestVersion)
+                && Version.TryParse(current, out Version? currentVersion)
+                && latestVersion > currentVersion;
+            string notes = release["body"]?.GetValue<string>() ?? "";
+            return new JsonObject
+            {
+                ["current"] = current,
+                ["latest"] = latest,
+                ["upToDate"] = !newer,
+                ["url"] = release["html_url"]?.GetValue<string>(),
+                ["notes"] = notes.Length > 800 ? notes[..800] + "…" : notes,
+            };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return new JsonObject { ["current"] = current, ["error"] = "Couldn't reach GitHub. Check your internet connection and try again." };
+        }
+    }
+
+    private static string AppVersion => typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
+    private static HttpClient CreateWebClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Therennai/" + AppVersion);
+        return client;
+    }
+
+    private static void OpenInBrowser(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
 
     private void PostResult(string requestId, JsonObject data) =>
         Post(new JsonObject { ["type"] = "result", ["requestId"] = requestId, ["data"] = data });
