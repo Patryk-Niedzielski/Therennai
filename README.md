@@ -2,7 +2,7 @@
 
 Therennai is an open-source AI agent that runs locally on your own computer. Your chats never leave your PC.
 
-This repository has the Windows desktop app, `Therennai.exe`: a chat window with a sidebar of recent chats, a message box with slash commands, a context meter, a permissions button and a model picker. The model, **Therennai 1.0**, is built on Gemma 3 4B and runs entirely on your PC, on the GPU when there's room.
+This repository has the Windows desktop app, `Therennai.exe`: a chat window with a sidebar of recent chats, a message box with slash commands, a context meter, a permissions button and a model picker. Its model, **Vesper 1.0**, is built on Gemma 3 4B and runs entirely on your PC, on the GPU when there's room.
 
 ## Features
 
@@ -66,7 +66,7 @@ Commands for coding agents, such as `/init`, `/review`, `/diff`, `/mcp` and `/ag
 
 ## Context
 
-Therennai 1.0 has a 16,384-token context window, the largest that fits fully on a 6 GB GPU. The ring next to the model picker shows how much of it the current chat uses; click it for details. The button beside it compacts the chat: Therennai replaces the chat with a summary to free up space. When a chat reaches 85%, Therennai compacts it automatically before sending your next message.
+Vesper 1.0 has a 16,384-token context window, the largest that fits fully on a 6 GB GPU. The ring next to the model picker shows how much of it the current chat uses; click it for details. The button beside it compacts the chat: Therennai replaces the chat with a summary to free up space. When a chat reaches 85%, Therennai compacts it automatically before sending your next message.
 
 ## Permissions
 
@@ -107,8 +107,8 @@ Installed copies of Therennai offer the update the next time they check.
 | `src/Therennai/ModelInstaller.cs` | The `/install` and `/uninstall` commands: steps and progress |
 | `src/Therennai/Updater.cs` | Downloads a release and swaps in the new program files, keeping chats |
 | `ui/` | Interface: layout, styling, chats, commands, settings (`MODELS`, `PERMISSIONS` and `COMMANDS` in `app.js`) |
-| `models/therennai-1.0/system.txt` | Therennai 1.0's instructions: personality and how it behaves |
-| `models/therennai-1.0/Modelfile` | Therennai 1.0's base model and generation settings |
+| `models/therennai-1.0/system.txt` | Vesper 1.0's instructions: personality and how it behaves |
+| `models/therennai-1.0/Modelfile` | Vesper 1.0's base model and generation settings |
 | `models/therennai-1.0/model.json` | Name, version, disk size and context window, used by the app and `/install` |
 | `ui/icon.svg`, `assets/icon.ico` | App icon; `tools/make-icon.ps1` renders the `.ico` from the SVG |
 | `install.ps1`, `install-brain.ps1` | Build the app and desktop shortcut; set up the model from PowerShell |
@@ -116,7 +116,7 @@ Installed copies of Therennai offer the update the next time they check.
 
 ## Teaching Therennai
 
-Edit `models/therennai-1.0/system.txt` to change how Therennai behaves, then run `install.ps1` again. To change the base model or settings, edit the `Modelfile`, then run `/uninstall model 1.0` and `/install model 1.0` in the app (or `install-brain.ps1`).
+Edit `models/therennai-1.0/system.txt` to change how Vesper behaves, then run `install.ps1` again. To change the base model or settings, edit the `Modelfile`, then run `/uninstall model 1.0` and `/install model 1.0` in the app (or `install-brain.ps1`).
 
 ## License
 

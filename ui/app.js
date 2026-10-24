@@ -3,8 +3,12 @@
 
 // Each model is installed separately with "/install model <version>".
 const MODELS = [
-  { id: "therennai:1.0", name: "Therennai 1.0", version: "1.0", description: "Runs on this PC", contextTokens: 16384 },
+  // "id" is the engine's name for the model and stays fixed, so renaming a model never needs a reinstall.
+  { id: "therennai:1.0", name: "Vesper 1.0", version: "1.0", description: "Runs on this PC", contextTokens: 16384 },
 ];
+
+// Earlier names of models, so replies in saved chats show the current name.
+const RENAMED_MODELS = { "Therennai 1.0": "Vesper 1.0" };
 
 // Like Claude Code, the chat is summarized automatically before it fills the context window.
 const AUTO_COMPACT_PERCENT = 85;
@@ -1215,9 +1219,11 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Replies interrupted by closing the app can't resume; mark them so they don't spin forever.
+// Also relabel replies from models that have since been renamed.
 for (const chat of state.chats) {
   for (const msg of chat.messages) {
     if (msg.loading) { msg.loading = false; msg.text = msg.text || "*Stopped.*"; }
+    if (RENAMED_MODELS[msg.model]) msg.model = RENAMED_MODELS[msg.model];
   }
 }
 

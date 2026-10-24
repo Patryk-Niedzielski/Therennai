@@ -1,4 +1,4 @@
-# Therennai 1.0: base model and generation settings.
+# Vesper 1.0 (Therennai's model): base model and generation settings.
 # The system prompt lives in system.txt and is sent by the app with every chat.
 FROM gemma3:4b
 

@@ -1,4 +1,4 @@
-# Installs the local model engine and creates the Therennai 1.0 model.
+# Installs the local model engine and creates Therennai's model, Vesper 1.0.
 # Needs about 8 GB of free disk space (engine plus the 3.3 GB base model, with room to spare).
 
 $ErrorActionPreference = "Stop"
@@ -34,12 +34,12 @@ try {
     & $engine pull gemma3:4b
     if ($LASTEXITCODE -ne 0) { throw "Downloading the base model failed." }
 
-    Write-Host "Creating Therennai 1.0..."
+    Write-Host "Creating Vesper 1.0..."
     & $engine create therennai:1.0 -f (Join-Path $root "models\therennai-1.0\Modelfile")
-    if ($LASTEXITCODE -ne 0) { throw "Creating Therennai 1.0 failed." }
+    if ($LASTEXITCODE -ne 0) { throw "Creating Vesper 1.0 failed." }
 }
 finally {
     if ($server) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Host "Therennai 1.0 is ready. Open Therennai from the desktop."
+Write-Host "Vesper 1.0 is ready. Open Therennai from the desktop."
